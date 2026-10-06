@@ -126,6 +126,37 @@ class InventoryItem(db.Model):
     location = db.Column(db.String(120), nullable=False)
 
 
+class EquipmentCheckout(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    inventory_item_id = db.Column(db.Integer, db.ForeignKey("inventory_item.id"), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)
+    project_id = db.Column(db.Integer, db.ForeignKey("project.id"), nullable=False)
+    responsible_worker_id = db.Column(db.Integer, db.ForeignKey("worker.id"), nullable=False)
+    expected_return = db.Column(db.Date, nullable=False)
+    checked_out_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    returned_at = db.Column(db.DateTime, nullable=True)
+    item = db.relationship("InventoryItem")
+    project = db.relationship("Project")
+    responsible_worker = db.relationship("Worker")
+
+
+class EquipmentMovement(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    inventory_item_id = db.Column(db.Integer, db.ForeignKey("inventory_item.id"), nullable=False)
+    checkout_id = db.Column(db.Integer, db.ForeignKey("equipment_checkout.id"), nullable=False)
+    action = db.Column(db.String(16), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)
+    from_project_id = db.Column(db.Integer, db.ForeignKey("project.id"), nullable=True)
+    to_project_id = db.Column(db.Integer, db.ForeignKey("project.id"), nullable=True)
+    worker_id = db.Column(db.Integer, db.ForeignKey("worker.id"), nullable=True)
+    happened_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    item = db.relationship("InventoryItem")
+    checkout = db.relationship("EquipmentCheckout")
+    from_project = db.relationship("Project", foreign_keys=[from_project_id])
+    to_project = db.relationship("Project", foreign_keys=[to_project_id])
+    worker = db.relationship("Worker")
+
+
 def _seed_accounts():
     if not LoginAccount.query.filter_by(username="admin").first():
         db.session.add(LoginAccount(
@@ -323,6 +354,10 @@ def _task_data(task):
 
 
 def _inventory_data(item):
+    active_checkouts = EquipmentCheckout.query.filter_by(
+        inventory_item_id=item.id, returned_at=None
+    ).all()
+    checked_out = sum(checkout.quantity for checkout in active_checkouts)
     return {
         "id": item.id,
         "sku": item.sku,
@@ -333,6 +368,59 @@ def _inventory_data(item):
         "reorder_level": item.reorder_level,
         "location": item.location,
         "low_stock": item.quantity <= item.reorder_level,
+        "checked_out": checked_out,
+        "available": max(0, item.quantity - checked_out),
+    }
+
+
+def _equipment_checkout_data(checkout):
+    return {
+        "id": checkout.id,
+        "item_id": checkout.inventory_item_id,
+        "item": checkout.item.name,
+        "sku": checkout.item.sku,
+        "quantity": checkout.quantity,
+        "project_id": checkout.project_id,
+        "project": checkout.project.name,
+        "worker_id": checkout.responsible_worker_id,
+        "worker": checkout.responsible_worker.full_name,
+        "expected_return": checkout.expected_return.isoformat(),
+        "checked_out_at": checkout.checked_out_at.isoformat(),
+        "returned_at": checkout.returned_at.isoformat() if checkout.returned_at else None,
+        "overdue": checkout.returned_at is None and checkout.expected_return < date.today(),
+    }
+
+
+def _equipment_movement_data(movement):
+    return {
+        "id": movement.id,
+        "item": movement.item.name,
+        "sku": movement.item.sku,
+        "action": movement.action,
+        "quantity": movement.quantity,
+        "from_project": movement.from_project.name if movement.from_project else "Warehouse",
+        "to_project": movement.to_project.name if movement.to_project else "Warehouse",
+        "worker": movement.worker.full_name if movement.worker else "—",
+        "happened_at": movement.happened_at.isoformat(),
+    }
+
+
+def _equipment_payload():
+    equipment = InventoryItem.query.filter(
+        db.func.lower(InventoryItem.category).in_(("tools", "equipment"))
+    ).order_by(InventoryItem.name).all()
+    open_checkouts = EquipmentCheckout.query.filter_by(returned_at=None).order_by(
+        EquipmentCheckout.expected_return, EquipmentCheckout.id
+    ).all()
+    history = EquipmentMovement.query.order_by(
+        EquipmentMovement.happened_at.desc(), EquipmentMovement.id.desc()
+    ).limit(100).all()
+    return {
+        "equipment": [_inventory_data(item) for item in equipment],
+        "checkouts": [_equipment_checkout_data(checkout) for checkout in open_checkouts],
+        "history": [_equipment_movement_data(movement) for movement in history],
+        "projects": [_project_data(project) for project in Project.query.order_by(Project.name).all()],
+        "workers": [_worker_data(worker) for worker in Worker.query.filter_by(is_active=True).order_by(Worker.full_name).all()],
     }
 
 
@@ -613,6 +701,115 @@ def create_app(database_url=None):
                 "due_tomorrow": len(alarms),
             },
         })
+
+    @app.get("/api/equipment")
+    @require_role("admin")
+    def equipment():
+        return jsonify(_equipment_payload())
+
+    @app.post("/api/equipment/checkouts")
+    @require_role("admin")
+    def checkout_equipment():
+        data = request.get_json(silent=True) or {}
+        try:
+            item_id = int(data.get("item_id"))
+            project_id = int(data.get("project_id"))
+            worker_id = int(data.get("worker_id"))
+            quantity = int(data.get("quantity"))
+            expected_return = date.fromisoformat(data.get("expected_return", ""))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Choose equipment, a project, a responsible worker, quantity, and valid return date."}), 400
+        item = db.session.get(InventoryItem, item_id)
+        project = db.session.get(Project, project_id)
+        worker = db.session.get(Worker, worker_id)
+        is_equipment = item and item.category.lower() in {"tools", "equipment"}
+        if not is_equipment or quantity <= 0:
+            return jsonify({"error": "Choose a shared equipment item and a quantity greater than zero."}), 400
+        if not project or not worker or not worker.is_active or worker.project_id != project.id:
+            return jsonify({"error": "Choose an active responsible worker assigned to the selected project."}), 400
+        if expected_return < date.today():
+            return jsonify({"error": "Expected return date cannot be in the past."}), 400
+        open_quantity = db.session.query(db.func.coalesce(db.func.sum(EquipmentCheckout.quantity), 0)).filter(
+            EquipmentCheckout.inventory_item_id == item.id,
+            EquipmentCheckout.returned_at.is_(None),
+        ).scalar()
+        available = item.quantity - int(open_quantity or 0)
+        if quantity > available:
+            return jsonify({"error": f"Only {available} {item.unit} are available to check out."}), 409
+        checkout = EquipmentCheckout(
+            inventory_item_id=item.id,
+            quantity=quantity,
+            project_id=project.id,
+            responsible_worker_id=worker.id,
+            expected_return=expected_return,
+        )
+        db.session.add(checkout)
+        db.session.flush()
+        db.session.add(EquipmentMovement(
+            inventory_item_id=item.id,
+            checkout_id=checkout.id,
+            action="Checkout",
+            quantity=quantity,
+            to_project_id=project.id,
+            worker_id=worker.id,
+        ))
+        db.session.commit()
+        return jsonify({"checkout": _equipment_checkout_data(checkout), **_equipment_payload()}), 201
+
+    @app.post("/api/equipment/checkouts/<int:checkout_id>/return")
+    @require_role("admin")
+    def return_equipment(checkout_id):
+        checkout = db.session.get(EquipmentCheckout, checkout_id)
+        if not checkout:
+            return jsonify({"error": "Equipment checkout not found."}), 404
+        if checkout.returned_at:
+            return jsonify({"error": "This equipment checkout has already been returned."}), 409
+        checkout.returned_at = datetime.now(timezone.utc)
+        db.session.add(EquipmentMovement(
+            inventory_item_id=checkout.inventory_item_id,
+            checkout_id=checkout.id,
+            action="Return",
+            quantity=checkout.quantity,
+            from_project_id=checkout.project_id,
+            worker_id=checkout.responsible_worker_id,
+        ))
+        db.session.commit()
+        return jsonify({"checkout": _equipment_checkout_data(checkout), **_equipment_payload()})
+
+    @app.post("/api/equipment/checkouts/<int:checkout_id>/transfer")
+    @require_role("admin")
+    def transfer_equipment(checkout_id):
+        checkout = db.session.get(EquipmentCheckout, checkout_id)
+        if not checkout:
+            return jsonify({"error": "Equipment checkout not found."}), 404
+        if checkout.returned_at:
+            return jsonify({"error": "Returned equipment cannot be transferred."}), 409
+        data = request.get_json(silent=True) or {}
+        try:
+            project_id = int(data.get("project_id"))
+            worker_id = int(data.get("worker_id"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Choose a destination project and responsible worker."}), 400
+        project = db.session.get(Project, project_id)
+        worker = db.session.get(Worker, worker_id)
+        if not project or not worker or not worker.is_active or worker.project_id != project.id:
+            return jsonify({"error": "Choose an active responsible worker assigned to the destination project."}), 400
+        if project.id == checkout.project_id:
+            return jsonify({"error": "Choose a different destination project to record a transfer."}), 400
+        old_project_id = checkout.project_id
+        checkout.project_id = project.id
+        checkout.responsible_worker_id = worker.id
+        db.session.add(EquipmentMovement(
+            inventory_item_id=checkout.inventory_item_id,
+            checkout_id=checkout.id,
+            action="Transfer",
+            quantity=checkout.quantity,
+            from_project_id=old_project_id,
+            to_project_id=project.id,
+            worker_id=worker.id,
+        ))
+        db.session.commit()
+        return jsonify({"checkout": _equipment_checkout_data(checkout), **_equipment_payload()})
 
     @app.get("/api/payroll")
     @require_role("admin")
@@ -984,6 +1181,14 @@ def create_app(database_url=None):
             return jsonify({"error": "Complete all fields and use non-negative stock quantities."}), 400
         item = InventoryItem.query.filter_by(sku=sku).first()
         if item:
+            checked_out = db.session.query(db.func.coalesce(db.func.sum(EquipmentCheckout.quantity), 0)).filter(
+                EquipmentCheckout.inventory_item_id == item.id,
+                EquipmentCheckout.returned_at.is_(None),
+            ).scalar()
+            if quantity < int(checked_out or 0):
+                return jsonify({"error": f"Cannot set stock below the {checked_out} units currently checked out."}), 409
+            if int(checked_out or 0) and category.lower() not in {"tools", "equipment"}:
+                return jsonify({"error": "Return all checked-out equipment before changing this item's category."}), 409
             item.name, item.category = name, category
             item.quantity, item.unit = quantity, unit
             item.reorder_level, item.location = reorder_level, location

@@ -395,6 +395,100 @@ class PortalApiTests(unittest.TestCase):
         })
         self.assertEqual(denied.status_code, 401)
 
+    def test_shared_equipment_checkout_transfer_return_and_history(self):
+        dashboard = self.client.get("/api/dashboard").get_json()
+        equipment_item = next(item for item in dashboard["inventory"] if item["sku"] == "TOOL-DRILL-03")
+        source_worker = next(worker for worker in dashboard["workers"] if worker["project_id"] == 1)
+        destination_worker = next(worker for worker in dashboard["workers"] if worker["project_id"] != 1)
+        checkout_response = self.client.post("/api/equipment/checkouts", json={
+            "item_id": equipment_item["id"],
+            "quantity": 5,
+            "project_id": source_worker["project_id"],
+            "worker_id": source_worker["id"],
+            "expected_return": (date.today() + timedelta(days=2)).isoformat(),
+        })
+        self.assertEqual(checkout_response.status_code, 201)
+        checkout_id = checkout_response.get_json()["checkout"]["id"]
+        gear = next(item for item in checkout_response.get_json()["equipment"] if item["id"] == equipment_item["id"])
+        self.assertEqual(gear["available"], 7)
+        self.assertEqual(gear["checked_out"], 5)
+
+        excess = self.client.post("/api/equipment/checkouts", json={
+            "item_id": equipment_item["id"],
+            "quantity": 8,
+            "project_id": source_worker["project_id"],
+            "worker_id": source_worker["id"],
+            "expected_return": (date.today() + timedelta(days=2)).isoformat(),
+        })
+        self.assertEqual(excess.status_code, 409)
+
+        transfer = self.client.post(f"/api/equipment/checkouts/{checkout_id}/transfer", json={
+            "project_id": destination_worker["project_id"],
+            "worker_id": destination_worker["id"],
+        })
+        self.assertEqual(transfer.status_code, 200)
+        self.assertEqual(transfer.get_json()["checkout"]["project_id"], destination_worker["project_id"])
+        self.assertEqual(transfer.get_json()["checkout"]["worker_id"], destination_worker["id"])
+
+        returned = self.client.post(f"/api/equipment/checkouts/{checkout_id}/return")
+        self.assertEqual(returned.status_code, 200)
+        self.assertEqual(returned.get_json()["checkout"]["returned_at"] is not None, True)
+        gear = next(item for item in returned.get_json()["equipment"] if item["id"] == equipment_item["id"])
+        self.assertEqual(gear["available"], 12)
+        self.assertEqual([entry["action"] for entry in returned.get_json()["history"][:3]], ["Return", "Transfer", "Checkout"])
+        self.assertEqual(self.client.post(f"/api/equipment/checkouts/{checkout_id}/return").status_code, 409)
+        self.assertEqual(
+            self.client.post(f"/api/equipment/checkouts/{checkout_id}/transfer", json={
+                "project_id": source_worker["project_id"],
+                "worker_id": source_worker["id"],
+            }).status_code,
+            409,
+        )
+
+    def test_equipment_checkout_validates_project_worker_and_stock_reductions(self):
+        dashboard = self.client.get("/api/dashboard").get_json()
+        item = next(item for item in dashboard["inventory"] if item["sku"] == "TOOL-DRILL-03")
+        worker = next(worker for worker in dashboard["workers"] if worker["project_id"] == 1)
+        mismatch = self.client.post("/api/equipment/checkouts", json={
+            "item_id": item["id"],
+            "quantity": 1,
+            "project_id": 2,
+            "worker_id": worker["id"],
+            "expected_return": (date.today() + timedelta(days=1)).isoformat(),
+        })
+        self.assertEqual(mismatch.status_code, 400)
+        checkout = self.client.post("/api/equipment/checkouts", json={
+            "item_id": item["id"],
+            "quantity": 2,
+            "project_id": worker["project_id"],
+            "worker_id": worker["id"],
+            "expected_return": (date.today() + timedelta(days=1)).isoformat(),
+        })
+        self.assertEqual(checkout.status_code, 201)
+        self.assertEqual(
+            self.client.post("/api/inventory", json={
+                "sku": item["sku"], "name": item["name"], "category": item["category"],
+                "quantity": 0, "unit": item["unit"], "reorder_level": item["reorder_level"],
+                "location": item["location"],
+            }).status_code,
+            409,
+        )
+        invalid_date = self.client.post("/api/equipment/checkouts", json={
+            "item_id": item["id"],
+            "quantity": 1,
+            "project_id": worker["project_id"],
+            "worker_id": worker["id"],
+            "expected_return": (date.today() - timedelta(days=1)).isoformat(),
+        })
+        self.assertEqual(invalid_date.status_code, 400)
+
+    def test_equipment_routes_are_admin_only(self):
+        self.client.post("/api/auth/logout")
+        self.assertEqual(self.client.get("/api/equipment").status_code, 401)
+        self.sign_in("worker", "WK-2048", "worker123")
+        self.assertEqual(self.client.get("/api/equipment").status_code, 401)
+        self.assertEqual(self.client.post("/api/equipment/checkouts", json={}).status_code, 401)
+
 
 if __name__ == "__main__":
     unittest.main()

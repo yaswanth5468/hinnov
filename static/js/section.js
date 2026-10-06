@@ -107,9 +107,65 @@ function renderSection(data) {
       <article class="inventory-stat"><span>Below reorder point</span><strong class="${lowStock ? "inventory-alert-number" : ""}">${lowStock}</strong></article>
       <article class="inventory-stat"><span>Stocked locations</span><strong>${new Set(data.inventory.map(item => item.location)).size}</strong></article>`;
     bodyRows("inventoryRows", data.inventory.map(item =>
-      `<tr><td><span class="order-reference">${escapeSection(item.sku)}</span></td><td><strong>${escapeSection(item.name)}</strong></td><td>${escapeSection(item.category)}</td><td><strong>${item.quantity} ${escapeSection(item.unit)}</strong></td><td>${item.reorder_level} ${escapeSection(item.unit)}</td><td>${escapeSection(item.location)}</td><td><span class="status-pill ${item.low_stock ? "" : "status-ready"}">${item.low_stock ? "Reorder" : "In stock"}</span></td></tr>`
+      `<tr><td><span class="order-reference">${escapeSection(item.sku)}</span></td><td><strong>${escapeSection(item.name)}</strong></td><td>${escapeSection(item.category)}</td><td><strong>${item.quantity} ${escapeSection(item.unit)}</strong></td><td>${item.available} available · ${item.checked_out} out</td><td>${item.reorder_level} ${escapeSection(item.unit)}</td><td>${escapeSection(item.location)}</td><td><span class="status-pill ${item.low_stock ? "" : "status-ready"}">${item.low_stock ? "Reorder" : "In stock"}</span></td></tr>`
     ).join(""));
   }
+}
+
+function renderEquipment(data) {
+  const itemSelect = document.querySelector("#equipmentItem");
+  const projectSelect = document.querySelector("#equipmentProject");
+  const workerSelect = document.querySelector("#equipmentWorker");
+  itemSelect.innerHTML = data.equipment.map(item =>
+    `<option value="${item.id}" data-available="${item.available}" data-unit="${escapeSection(item.unit)}">${escapeSection(item.name)} · ${item.available} ${escapeSection(item.unit)} available</option>`
+  ).join("") || `<option value="">No shared equipment tracked</option>`;
+  projectSelect.innerHTML = data.projects.map(project =>
+    `<option value="${project.id}">${escapeSection(project.name)}</option>`
+  ).join("");
+  const workersForProject = projectId => data.workers.filter(worker =>
+    worker.is_active && worker.project_id === Number(projectId)
+  );
+  const refreshWorkers = () => {
+    workerSelect.innerHTML = workersForProject(projectSelect.value).map(worker =>
+      `<option value="${worker.id}">${escapeSection(worker.name)} · ${escapeSection(worker.role)}</option>`
+    ).join("");
+  };
+  projectSelect.onchange = refreshWorkers;
+  refreshWorkers();
+  const quantityInput = document.querySelector('#equipmentForm [name="quantity"]');
+  const checkoutButton = document.querySelector("#equipmentForm button");
+  const refreshAvailability = () => {
+    const available = Number(itemSelect.selectedOptions[0]?.dataset.available || 0);
+    quantityInput.max = String(available);
+    quantityInput.disabled = available === 0;
+    checkoutButton.disabled = available === 0;
+  };
+  itemSelect.onchange = refreshAvailability;
+  refreshAvailability();
+
+  const checkedOutQuantity = data.checkouts.reduce((total, checkout) => total + checkout.quantity, 0);
+  document.querySelector("#equipmentSummary").innerHTML = `
+    <article class="inventory-stat"><span>Shared equipment types</span><strong>${data.equipment.length}</strong></article>
+    <article class="inventory-stat"><span>Checked out</span><strong>${checkedOutQuantity}</strong></article>
+    <article class="inventory-stat"><span>Overdue returns</span><strong class="${data.checkouts.some(checkout => checkout.overdue) ? "inventory-alert-number" : ""}">${data.checkouts.filter(checkout => checkout.overdue).length}</strong></article>`;
+
+  document.querySelector("#equipmentCheckoutRows").innerHTML = data.checkouts.map(checkout => {
+    const eligibleProjects = data.projects.filter(project => project.id !== checkout.project_id);
+    const projectOptions = eligibleProjects.map((project, index) =>
+      `<option value="${project.id}" ${index === 0 ? "selected" : ""}>${escapeSection(project.name)}</option>`
+    ).join("");
+    const workerOptions = workersForProject(eligibleProjects[0]?.id).map(worker =>
+      `<option value="${worker.id}">${escapeSection(worker.name)}</option>`
+    ).join("");
+    const returnCell = checkout.overdue
+      ? `<span class="equipment-overdue">${sectionDate(checkout.expected_return)} · overdue</span>`
+      : sectionDate(checkout.expected_return);
+    return `<tr><td><strong>${escapeSection(checkout.item)}</strong><br><span class="subtle-cell">${escapeSection(checkout.sku)}</span></td><td>${checkout.quantity} ${escapeSection(data.equipment.find(item => item.id === checkout.item_id)?.unit || "")}</td><td>${escapeSection(checkout.project)}</td><td>${escapeSection(checkout.worker)}</td><td>${returnCell}</td><td><div class="equipment-actions"><select data-transfer-project="${checkout.id}" aria-label="Transfer destination">${projectOptions}</select><select data-transfer-worker="${checkout.id}" aria-label="Transfer responsible worker">${workerOptions}</select><button class="button button-secondary" data-transfer-checkout="${checkout.id}">Transfer</button><button class="button button-secondary" data-return-checkout="${checkout.id}">Check in</button></div></td></tr>`;
+  }).join("") || `<tr><td colspan="6">No equipment is currently checked out.</td></tr>`;
+
+  document.querySelector("#equipmentHistoryRows").innerHTML = data.history.map(movement =>
+    `<tr><td>${sectionDate(movement.happened_at.slice(0, 10))}</td><td><strong>${escapeSection(movement.item)}</strong><br><span class="subtle-cell">${escapeSection(movement.sku)}</span></td><td>${escapeSection(movement.action)}</td><td>${movement.quantity}</td><td>${escapeSection(movement.from_project)}</td><td>${escapeSection(movement.to_project)}</td><td>${escapeSection(movement.worker)}</td></tr>`
+  ).join("") || `<tr><td colspan="7">No equipment movements recorded yet.</td></tr>`;
 }
 
 function renderPayroll(data) {
@@ -180,6 +236,9 @@ async function loadSection() {
     }
     if (section === "team") {
       renderPayroll(await sectionRequest("/api/payroll"));
+    }
+    if (section === "inventory") {
+      renderEquipment(await sectionRequest("/api/equipment"));
     }
   } catch (error) {
     feedback(error.message, true);
@@ -300,6 +359,72 @@ document.querySelector("#inventoryForm")?.addEventListener("submit", async event
   } catch (error) {
     errorBox.textContent = error.message;
     errorBox.classList.remove("hidden");
+  }
+});
+
+if (document.querySelector("#equipmentReturnDate")) {
+  document.querySelector("#equipmentReturnDate").value = new Date().toISOString().slice(0, 10);
+}
+document.querySelector("#equipmentProject")?.addEventListener("change", event => {
+  const workerSelect = document.querySelector("#equipmentWorker");
+  if (!sectionData) return;
+  workerSelect.innerHTML = sectionData.workers.filter(worker =>
+    worker.project_id === Number(event.target.value)
+  ).map(worker =>
+    `<option value="${worker.id}">${escapeSection(worker.name)} · ${escapeSection(worker.role)}</option>`
+  ).join("");
+});
+document.querySelector("#equipmentForm")?.addEventListener("submit", async event => {
+  event.preventDefault();
+  const errorBox = document.querySelector("#equipmentError");
+  errorBox.classList.add("hidden");
+  try {
+    await sectionRequest("/api/equipment/checkouts", {
+      method: "POST",
+      body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())),
+    });
+    event.currentTarget.reset();
+    document.querySelector("#equipmentReturnDate").value = new Date().toISOString().slice(0, 10);
+    await loadSection();
+    feedback("Equipment checked out and movement recorded.");
+  } catch (error) {
+    errorBox.textContent = error.message;
+    errorBox.classList.remove("hidden");
+  }
+});
+document.querySelector("#equipmentCheckoutRows")?.addEventListener("change", event => {
+  const projectSelect = event.target.closest("[data-transfer-project]");
+  if (!projectSelect || !sectionData) return;
+  const workerSelect = document.querySelector(`[data-transfer-worker="${projectSelect.dataset.transferProject}"]`);
+  workerSelect.innerHTML = sectionData.workers.filter(worker =>
+    worker.project_id === Number(projectSelect.value)
+  ).map(worker =>
+    `<option value="${worker.id}">${escapeSection(worker.name)} · ${escapeSection(worker.role)}</option>`
+  ).join("");
+});
+document.querySelector("#equipmentCheckoutRows")?.addEventListener("click", async event => {
+  const returnButton = event.target.closest("[data-return-checkout]");
+  const transferButton = event.target.closest("[data-transfer-checkout]");
+  if (!returnButton && !transferButton) return;
+  const checkoutId = Number(returnButton ? returnButton.dataset.returnCheckout : transferButton.dataset.transferCheckout);
+  const button = returnButton || transferButton;
+  button.disabled = true;
+  try {
+    if (returnButton) {
+      await sectionRequest(`/api/equipment/checkouts/${checkoutId}/return`, { method: "POST" });
+    } else {
+      const projectId = document.querySelector(`[data-transfer-project="${checkoutId}"]`).value;
+      const workerId = document.querySelector(`[data-transfer-worker="${checkoutId}"]`).value;
+      await sectionRequest(`/api/equipment/checkouts/${checkoutId}/transfer`, {
+        method: "POST",
+        body: JSON.stringify({ project_id: projectId, worker_id: workerId }),
+      });
+    }
+    await loadSection();
+    feedback(returnButton ? "Equipment checked in." : "Equipment transfer recorded.");
+  } catch (error) {
+    button.disabled = false;
+    feedback(error.message, true);
   }
 });
 

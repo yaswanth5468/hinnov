@@ -39,6 +39,7 @@ The application creates its tables and demo rows on first run. Existing database
 - Admins can register workers with a daily wage or monthly salary, assign a project, and deactivate/reactivate worker portal access. Government ID, address, and bank information are not collected.
 - The team directory includes a wage ledger for wages earned, payments, and advances. Outstanding balance is calculated as earned wages less payments and advances. Earned wages are added to the project's labor expenses; payments and advances are ledger settlements and are not double-counted as project costs.
 - Purchase orders can name an active buyer assigned to the same project, include an order total, and move through Pending Pickup, Picked Up, and Delivered to Site. The order page provides a WhatsApp link with the voucher, supplier, item, project, pickup date, and total for the buyer.
+- Shared Tools and Equipment inventory supports quantity-based checkout to an active project worker, expected return dates, check-in, and project transfers with a persistent movement history. Available stock is protected against over-checkout and reductions below checked-out quantities.
 - The expenses page summarizes the complete expense ledger by project and cost category, compares project spending with budgets, exports all ledger rows as CSV, and provides a print-to-PDF report.
 
 ## API
@@ -55,5 +56,7 @@ The application creates its tables and demo rows on first run. Existing database
 - `POST /api/work-logs` — admin or signed-in worker daily task update; worker accounts can only post for themselves.
 - `POST /api/orders` and `POST /api/expenses` — admin-only procurement and project finance updates.
 - `PATCH /api/orders/<id>` — admin-only buyer assignment and purchase order status update.
+- `GET /api/equipment` — admin-only shared equipment availability, open checkouts, and recent movement history.
+- `POST /api/equipment/checkouts`, `POST /api/equipment/checkouts/<id>/return`, and `POST /api/equipment/checkouts/<id>/transfer` — admin-only equipment custody changes.
 
 Site-photo selection is simulated by recording the selected filename; image storage is not configured. This is a starter/demo authentication flow; add HTTPS, rotate demo credentials, set a strong secret key, and review production security before public deployment.
