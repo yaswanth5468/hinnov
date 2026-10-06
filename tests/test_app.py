@@ -210,26 +210,82 @@ class PortalApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
 
     def test_order_with_tomorrow_pickup_triggers_alarm(self):
+        buyer = self.client.get("/api/dashboard").get_json()["workers"][0]
         response = self.client.post("/api/orders", json={
             "reference": "PO-2850",
             "supplier": "Demo supplier",
             "item": "Fasteners",
             "quantity": "30 boxes",
             "pickup_date": (date.today() + timedelta(days=1)).isoformat(),
-            "project_id": 1,
+            "project_id": buyer["project_id"],
+            "buyer_worker_id": buyer["id"],
         })
         self.assertEqual(response.status_code, 201)
         alarms = self.client.get("/api/dashboard").get_json()["alarms"]
         self.assertIn("PO-2850", [order["reference"] for order in alarms])
 
+    def test_purchase_order_dispatch_details_and_status_lifecycle(self):
+        buyer = self.client.get("/api/dashboard").get_json()["workers"][0]
+        response = self.client.post("/api/orders", json={
+            "reference": "PO-2860",
+            "supplier": "Pacific Steel Co.",
+            "item": "Reinforcement bars",
+            "quantity": "120 kg",
+            "total_cost": 840,
+            "pickup_date": (date.today() + timedelta(days=1)).isoformat(),
+            "project_id": buyer["project_id"],
+            "buyer_worker_id": buyer["id"],
+        })
+        self.assertEqual(response.status_code, 201)
+        order = response.get_json()
+        self.assertEqual(order["status"], "Pending Pickup")
+        self.assertEqual(order["buyer"], buyer["name"])
+        self.assertEqual(order["buyer_phone"], buyer["phone"])
+        self.assertEqual(order["total_cost"], 840)
+        self.assertIn("PO-2860", [alarm["reference"] for alarm in self.client.get("/api/dashboard").get_json()["alarms"]])
+
+        updated = self.client.patch(f"/api/orders/{order['id']}", json={"status": "Picked Up"})
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.get_json()["status"], "Picked Up")
+        self.assertNotIn("PO-2860", [alarm["reference"] for alarm in self.client.get("/api/dashboard").get_json()["alarms"]])
+
+        delivered = self.client.patch(f"/api/orders/{order['id']}", json={"status": "Delivered to Site"})
+        self.assertEqual(delivered.status_code, 200)
+        self.assertEqual(delivered.get_json()["status"], "Delivered to Site")
+        backwards = self.client.patch(f"/api/orders/{order['id']}", json={"status": "Picked Up"})
+        self.assertEqual(backwards.status_code, 409)
+
+    def test_order_buyer_must_be_active_and_assigned_to_order_project(self):
+        self.assertEqual(
+            self.client.patch("/api/orders/1", json={"status": "Picked Up"}).status_code,
+            400,
+        )
+        order = {
+            "reference": "PO-2861",
+            "supplier": "Demo supplier",
+            "item": "Fasteners",
+            "quantity": "30 boxes",
+            "pickup_date": date.today().isoformat(),
+            "project_id": 1,
+        }
+        self.assertEqual(self.client.post("/api/orders", json=order).status_code, 400)
+        order["buyer_worker_id"] = 3
+        response = self.client.post("/api/orders", json=order)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.client.post("/api/auth/logout").status_code, 200)
+        self.sign_in("worker", "WK-2048", "worker123")
+        self.assertEqual(self.client.patch("/api/orders/1", json={"status": "Picked Up"}).status_code, 401)
+
     def test_order_rejects_duplicate_reference(self):
+        buyer = self.client.get("/api/dashboard").get_json()["workers"][0]
         order = {
             "reference": "PO-2850",
             "supplier": "Demo supplier",
             "item": "Fasteners",
             "quantity": "30 boxes",
             "pickup_date": (date.today() + timedelta(days=1)).isoformat(),
-            "project_id": 1,
+            "project_id": buyer["project_id"],
+            "buyer_worker_id": buyer["id"],
         }
         self.assertEqual(self.client.post("/api/orders", json=order).status_code, 201)
         duplicate = self.client.post("/api/orders", json=order)

@@ -66,7 +66,29 @@ function renderOrders() {
   const host = $("#orderRows");
   host.innerHTML = state.data.orders.slice(0, 4).map(order => {
     const urgent = order.pickup_date === tomorrowIso();
-    return `<tr><td><span class="order-reference">${escapeHtml(order.reference)}</span></td><td>${escapeHtml(order.supplier)}</td><td>${escapeHtml(order.item)} <span style="color:#a2a69f">· ${escapeHtml(order.quantity)}</span></td><td class="project-cell">${escapeHtml(order.project)}</td><td class="${urgent ? "date-urgent" : ""}">${urgent ? "Tomorrow · " : ""}${dateLabel(order.pickup_date)}</td><td><span class="status-pill ${urgent ? "" : "status-ready"}">${escapeHtml(order.status)}</span></td><td><button class="row-more" aria-label="More options">···</button></td></tr>`;
+    const orderBuyerChoices = state.data.workers.filter(worker =>
+      worker.is_active && worker.project_id === order.project_id
+    ).map(worker =>
+      `<option value="${worker.id}" ${worker.id === order.buyer_worker_id ? "selected" : ""}>${escapeHtml(worker.name)}</option>`
+    ).join("");
+    const message = [
+      `BuildPro pickup instructions — ${order.reference}`,
+      `Buyer: ${order.buyer || ""}`,
+      `Supplier: ${order.supplier}`,
+      `Item: ${order.item} (${order.quantity})`,
+      `Project: ${order.project}`,
+      `Pickup date: ${order.pickup_date}`,
+      `Total: ${money(order.total_cost)}`,
+    ].join("\n");
+    const buyerPhone = state.data.workers.find(worker => worker.id === order.buyer_worker_id)?.phone || "";
+    const phoneDigits = buyerPhone.replace(/\D/g, "");
+    const whatsappHref = phoneDigits
+      ? `https://wa.me/${phoneDigits}?text=${encodeURIComponent(message)}`
+      : "";
+    const statusOptions = ["Pending Pickup", "Picked Up", "Delivered to Site"].map(status =>
+      `<option value="${status}" ${status === order.status ? "selected" : ""}>${status}</option>`
+    ).join("");
+    return `<tr><td><span class="order-reference">${escapeHtml(order.reference)}</span></td><td>${escapeHtml(order.supplier)}</td><td>${escapeHtml(order.item)} <span style="color:#a2a69f">· ${escapeHtml(order.quantity)}</span></td><td class="project-cell">${escapeHtml(order.project)}</td><td class="${urgent ? "date-urgent" : ""}">${urgent ? "Tomorrow · " : ""}${dateLabel(order.pickup_date)}</td><td><span class="status-pill ${order.status === "Delivered to Site" ? "status-ready" : urgent ? "" : "status-ready"}">${escapeHtml(order.status)}</span><select class="order-status-select" data-order-status="${order.id}" aria-label="Update order status">${statusOptions}</select></td><td><select class="order-buyer-select" data-order-buyer="${order.id}" aria-label="Assign order buyer"><option value="">Select buyer</option>${orderBuyerChoices}</select><div class="order-action-links"><a class="order-dispatch-link ${whatsappHref ? "" : "hidden"}" data-order-whatsapp="${order.id}" href="${escapeHtml(whatsappHref)}" target="_blank" rel="noopener noreferrer">WhatsApp</a><button class="order-save-button" data-save-order="${order.id}">Save</button></div></td></tr>`;
   }).join("");
 }
 
@@ -123,6 +145,16 @@ function renderDashboard(data) {
   ).join("");
   $("#orderProject").innerHTML = projectOptions;
   $("#expenseProject").innerHTML = projectOptions;
+  const activeWorkers = data.workers.filter(worker => worker.is_active);
+  const orderBuyerSelect = $("#orderBuyer");
+  function updateOrderBuyers() {
+    const projectId = Number($("#orderProject").value);
+    orderBuyerSelect.innerHTML = activeWorkers.filter(worker => worker.project_id === projectId)
+      .map(worker => `<option value="${worker.id}">${escapeHtml(worker.name)} · ${escapeHtml(worker.role)}</option>`)
+      .join("");
+  }
+  $("#orderProject").onchange = updateOrderBuyers;
+  updateOrderBuyers();
   $("#logWorker").innerHTML = data.workers.map(worker =>
     `<option value="${worker.id}">${escapeHtml(worker.name)} · ${escapeHtml(worker.role)}</option>`
   ).join("");
@@ -166,6 +198,48 @@ $$("[data-logout]").forEach(button => button.addEventListener("click", async () 
   window.location.assign("/");
 }));
 $("#notificationTrigger").addEventListener("click", () => $("#notificationPopover").classList.toggle("hidden"));
+$("#orderRows").addEventListener("change", event => {
+  const buyerSelect = event.target.closest("[data-order-buyer]");
+  if (!buyerSelect) return;
+  const order = state.data.orders.find(item => item.id === Number(buyerSelect.dataset.orderBuyer));
+  const buyer = state.data.workers.find(worker => worker.id === Number(buyerSelect.value));
+  const link = $(`[data-order-whatsapp="${buyerSelect.dataset.orderBuyer}"]`);
+  if (!order || !buyer || !link) {
+    link?.classList.add("hidden");
+    return;
+  }
+  const phoneDigits = buyer.phone.replace(/\D/g, "");
+  const message = [
+    `BuildPro pickup instructions — ${order.reference}`,
+    `Buyer: ${buyer.name}`,
+    `Supplier: ${order.supplier}`,
+    `Item: ${order.item} (${order.quantity})`,
+    `Project: ${order.project}`,
+    `Pickup date: ${order.pickup_date}`,
+    `Total: ${money(order.total_cost)}`,
+  ].join("\n");
+  link.href = `https://wa.me/${phoneDigits}?text=${encodeURIComponent(message)}`;
+  link.classList.toggle("hidden", !phoneDigits);
+});
+$("#orderRows").addEventListener("click", async event => {
+  const button = event.target.closest("[data-save-order]");
+  if (!button) return;
+  const orderId = Number(button.dataset.saveOrder);
+  const status = $(`[data-order-status="${orderId}"]`).value;
+  const buyerWorkerId = $(`[data-order-buyer="${orderId}"]`).value;
+  button.disabled = true;
+  try {
+    await requestJson(`/api/orders/${orderId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status, buyer_worker_id: buyerWorkerId || null }),
+    });
+    await loadDashboard();
+    showToast("Purchase order updated");
+  } catch (error) {
+    button.disabled = false;
+    showToast(error.message, true);
+  }
+});
 $("#dismissBanner").addEventListener("click", () => {
   state.dismissedAlarm = true;
   $("#alarmBanner").classList.add("hidden");
@@ -209,6 +283,7 @@ $("#newOrderButton").addEventListener("click", () => {
   $("#orderError").classList.add("hidden");
   $("#orderModal").classList.remove("hidden");
   $("#orderForm").elements.pickup_date.value = tomorrowIso();
+  $("#orderProject").dispatchEvent(new Event("change"));
 });
 function openExpenseForm() {
   $("#expenseError").classList.add("hidden");
@@ -239,6 +314,7 @@ $("#orderForm").addEventListener("submit", async event => {
     await requestJson("/api/orders", { method: "POST", body: JSON.stringify(payload) });
     $("#orderModal").classList.add("hidden");
     event.currentTarget.reset();
+    $("#orderProject").dispatchEvent(new Event("change"));
     await loadDashboard();
     showToast("Purchase order created");
   } catch (error) {

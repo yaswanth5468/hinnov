@@ -88,7 +88,7 @@
 
         <section class="panel orders-panel" id="ordersPanel">
           <div class="panel-heading"><div><h2>Upcoming pickups</h2><p>Materials and equipment scheduled for collection</p></div><a class="text-button" href="/admin/orders">View all orders <span>→</span></a></div>
-          <div class="table-wrap"><table><thead><tr><th>ORDER</th><th>SUPPLIER</th><th>ITEM</th><th>PROJECT</th><th>PICKUP DATE</th><th>STATUS</th><th></th></tr></thead><tbody id="orderRows"></tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th>ORDER</th><th>SUPPLIER</th><th>ITEM</th><th>PROJECT</th><th>PICKUP DATE</th><th>STATUS</th><th>BUYER / ACTIONS</th></tr></thead><tbody id="orderRows"></tbody></table></div>
         </section>
         <div class="management-grid">
           <section class="panel" id="teamPanel">
@@ -118,6 +118,7 @@
       <label>Order reference<input name="reference" placeholder="PO-2850" required></label>
       <div class="form-columns"><label>Supplier<input name="supplier" placeholder="Supplier name" required></label><label>Item<input name="item" placeholder="Materials or equipment" required></label></div>
       <div class="form-columns"><label>Quantity<input name="quantity" placeholder="e.g. 20 units" required></label><label>Pickup date<input name="pickup_date" type="date" required></label></div>
+      <div class="form-columns"><label>Order total (USD)<input name="total_cost" type="number" min="0" step="1" placeholder="0" value="0" required></label><label>Assigned buyer<select name="buyer_worker_id" id="orderBuyer" required></select></label></div>
       <label>Project<select name="project_id" id="orderProject" required></select></label>
       <div class="modal-error hidden" id="orderError"></div>
       <div class="modal-actions"><button type="button" class="button button-secondary" data-close-modal>Cancel</button><button class="button button-primary">Save purchase order</button></div>

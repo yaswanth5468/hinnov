@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 db = SQLAlchemy()
+ORDER_STATUSES = ("Pending Pickup", "Picked Up", "Delivered to Site")
 
 
 class Project(db.Model):
@@ -59,10 +60,13 @@ class PurchaseOrder(db.Model):
     supplier = db.Column(db.String(120), nullable=False)
     item = db.Column(db.String(120), nullable=False)
     quantity = db.Column(db.String(80), nullable=False)
+    total_cost = db.Column(db.Integer, nullable=False, default=0)
     pickup_date = db.Column(db.Date, nullable=False)
-    status = db.Column(db.String(32), nullable=False, default="Ready for pickup")
+    status = db.Column(db.String(32), nullable=False, default=ORDER_STATUSES[0])
     project_id = db.Column(db.Integer, db.ForeignKey("project.id"), nullable=False)
+    buyer_worker_id = db.Column(db.Integer, db.ForeignKey("worker.id"), nullable=True)
     project = db.relationship("Project")
+    buyer = db.relationship("Worker", foreign_keys=[buyer_worker_id])
 
 
 class WorkLog(db.Model):
@@ -278,10 +282,14 @@ def _order_data(order):
         "supplier": order.supplier,
         "item": order.item,
         "quantity": order.quantity,
+        "total_cost": order.total_cost,
         "pickup_date": order.pickup_date.isoformat(),
         "status": order.status,
         "project_id": order.project_id,
         "project": order.project.name,
+        "buyer_worker_id": order.buyer_worker_id,
+        "buyer": order.buyer.full_name if order.buyer else "",
+        "buyer_phone": order.buyer.phone if order.buyer else "",
     }
 
 
@@ -360,6 +368,20 @@ def _upgrade_schema():
     for column, definition in additions.items():
         if column not in worker_columns:
             db.session.execute(text(f"ALTER TABLE worker ADD COLUMN {column} {definition}"))
+    order_columns = {column["name"] for column in inspect(db.engine).get_columns("purchase_order")}
+    order_additions = {
+        "total_cost": "INTEGER NOT NULL DEFAULT 0",
+        "buyer_worker_id": "INTEGER",
+    }
+    for column, definition in order_additions.items():
+        if column not in order_columns:
+            db.session.execute(text(f"ALTER TABLE purchase_order ADD COLUMN {column} {definition}"))
+    db.session.execute(text(
+        "UPDATE purchase_order SET status = 'Pending Pickup' WHERE status = 'Ready for pickup'"
+    ))
+    db.session.execute(text(
+        "UPDATE purchase_order SET status = 'Picked Up' WHERE status = 'Picked up'"
+    ))
     db.session.commit()
 
 
@@ -568,7 +590,7 @@ def create_app(database_url=None):
         alarms = [
             {**_order_data(order), "alarm": True}
             for order in orders
-            if order.pickup_date == tomorrow and order.status != "Picked up"
+            if order.pickup_date == tomorrow and order.status == "Pending Pickup"
         ]
         return jsonify({
             "projects": [_project_data(project) for project in projects],
@@ -816,23 +838,33 @@ def create_app(database_url=None):
     @require_role("admin")
     def create_order():
         data = request.get_json(silent=True) or {}
-        required = ("reference", "supplier", "item", "quantity", "pickup_date")
+        required = ("reference", "supplier", "item", "quantity", "pickup_date", "buyer_worker_id")
         if any(not str(data.get(field, "")).strip() for field in required):
             return jsonify({"error": "Complete all purchase order fields."}), 400
         try:
             project_id = int(data.get("project_id"))
             pickup_date = date.fromisoformat(data["pickup_date"])
+            total_cost = int(data.get("total_cost", 0))
+            buyer_worker_id = int(data["buyer_worker_id"]) if data.get("buyer_worker_id") else None
         except (TypeError, ValueError):
-            return jsonify({"error": "Choose a valid project and pickup date."}), 400
-        if not db.session.get(Project, project_id):
+            return jsonify({"error": "Choose a valid project, buyer, pickup date, and whole-dollar total cost."}), 400
+        project = db.session.get(Project, project_id)
+        if not project:
             return jsonify({"error": "The selected project does not exist."}), 400
+        buyer = db.session.get(Worker, buyer_worker_id) if buyer_worker_id else None
+        if total_cost < 0:
+            return jsonify({"error": "Order total cannot be negative."}), 400
+        if buyer_worker_id and (not buyer or not buyer.is_active or buyer.project_id != project.id):
+            return jsonify({"error": "Choose an active buyer assigned to the selected project."}), 400
         order = PurchaseOrder(
             reference=str(data["reference"]).strip().upper(),
             supplier=str(data["supplier"]).strip(),
             item=str(data["item"]).strip(),
             quantity=str(data["quantity"]).strip(),
+            total_cost=total_cost,
             pickup_date=pickup_date,
             project_id=project_id,
+            buyer_worker_id=buyer.id if buyer else None,
         )
         db.session.add(order)
         try:
@@ -841,6 +873,33 @@ def create_app(database_url=None):
             db.session.rollback()
             return jsonify({"error": "That purchase order reference is already in use."}), 409
         return jsonify(_order_data(order)), 201
+
+    @app.patch("/api/orders/<int:order_id>")
+    @require_role("admin")
+    def update_order(order_id):
+        order = db.session.get(PurchaseOrder, order_id)
+        if not order:
+            return jsonify({"error": "Purchase order not found."}), 404
+        data = request.get_json(silent=True) or {}
+        status = data.get("status", order.status)
+        buyer_worker_id = data.get("buyer_worker_id", order.buyer_worker_id)
+        if not isinstance(status, str) or status not in ORDER_STATUSES:
+            return jsonify({"error": "Choose Pending Pickup, Picked Up, or Delivered to Site."}), 400
+        if ORDER_STATUSES.index(status) < ORDER_STATUSES.index(order.status):
+            return jsonify({"error": "Purchase order status cannot move backwards in its lifecycle."}), 409
+        try:
+            buyer_worker_id = int(buyer_worker_id) if buyer_worker_id is not None else None
+        except (TypeError, ValueError):
+            return jsonify({"error": "Choose a valid buyer."}), 400
+        buyer = db.session.get(Worker, buyer_worker_id) if buyer_worker_id else None
+        if buyer_worker_id and (not buyer or not buyer.is_active or buyer.project_id != order.project_id):
+            return jsonify({"error": "Choose an active buyer assigned to this order's project."}), 400
+        if status != ORDER_STATUSES[0] and not buyer:
+            return jsonify({"error": "Assign an active buyer before advancing this purchase order."}), 400
+        order.status = status
+        order.buyer_worker_id = buyer.id if buyer else None
+        db.session.commit()
+        return jsonify(_order_data(order))
 
     @app.post("/api/expenses")
     @require_role("admin")
