@@ -29,7 +29,7 @@ function renderWorkerPortal(worker) {
   workerContent.innerHTML = `
     <div class="worker-summary-grid">
       <article class="worker-data-card worker-project-card"><div class="worker-card-eyebrow">YOUR ASSIGNED PROJECT</div><h2>${workerEscape(worker.project.name)}</h2><p>${workerEscape(worker.project.location)}</p><div class="worker-large-progress"><div><span>Project progress</span><b>${worker.project.progress}%</b></div><div class="progress-track"><div class="progress-fill" style="width:${worker.project.progress}%"></div></div></div></article>
-      <article class="worker-data-card worker-pay-card"><div class="worker-card-eyebrow">TODAY'S WAGE</div><strong>${workerMoney(worker.daily_wage)}</strong><span>Daily rate · ${workerEscape(worker.role)}</span><div class="worker-id-chip">${workerEscape(worker.code)}</div></article>
+      <article class="worker-data-card worker-pay-card"><div class="worker-card-eyebrow">${worker.pay_type === "Monthly" ? "MONTHLY SALARY" : "DAILY WAGE"}</div><strong>${workerMoney(worker.pay_rate ?? worker.daily_wage)}</strong><span>${worker.pay_type === "Monthly" ? "Monthly rate" : "Daily rate"} · ${workerEscape(worker.role)}</span><div class="worker-id-chip">${workerEscape(worker.code)}</div></article>
       <article class="worker-data-card"><div class="worker-card-eyebrow">SITE SUPERVISOR</div><h2 class="supervisor-name">${workerEscape(worker.supervisor_name)}</h2><p>${workerEscape(worker.supervisor_phone)}</p><a class="button button-secondary" href="tel:${workerEscape(worker.supervisor_phone)}">Call your supervisor ↗</a></article>
     </div>
     <div class="worker-section-grid">

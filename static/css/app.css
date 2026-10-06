@@ -40,7 +40,12 @@
 .finance-budget-meter>span.over-budget{background:#cb7048}
 .finance-project-foot{margin-top:6px;font-size:8px;color:#858b83}
 .finance-empty{padding:16px 0;color:#92978f;font-size:10px}
+.payroll-summary{margin:0 16px 15px}
+.wage-entry-form{padding-top:16px;border-top:1px solid #f0f1ef}
+.worker-status-button{height:28px;padding:0 8px;font-size:8px}
 @media(max-width:820px){.finance-category-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:520px){.finance-summary{grid-template-columns:1fr}.finance-category-grid{grid-template-columns:1fr}.finance-project-foot{align-items:flex-start;flex-direction:column;gap:4px}}
 @media print{body{background:#fff}.sidebar,.topbar,.section-page>.page-heading,.print-hidden,.section-feedback{display:none!important}.main-area{margin:0}.section-page{max-width:none;padding:0}.finance-report{break-inside:avoid}.panel,.finance-stat,.finance-category{box-shadow:none;break-inside:avoid}.section-panel{break-inside:auto}.table-wrap{overflow:visible}table{width:100%;font-size:9px}}
 @media print{.print-report-heading{display:block}.finance-report{gap:9px;margin-bottom:9px}.finance-summary,.finance-category-grid{gap:6px}.finance-stat,.finance-category{padding:9px}.finance-project-list{padding-bottom:8px}}
+@media(max-width:820px){.page-heading .heading-actions .button{flex:1 1 auto}}
+@media(max-width:520px){.payroll-summary{margin:0 12px 12px}}

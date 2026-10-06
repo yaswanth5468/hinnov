@@ -5,6 +5,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -31,8 +32,24 @@ class Worker(db.Model):
     role = db.Column(db.String(64), nullable=False)
     project_id = db.Column(db.Integer, db.ForeignKey("project.id"), nullable=False)
     daily_wage = db.Column(db.Integer, nullable=False)
+    pay_type = db.Column(db.String(16), nullable=False, default="Daily")
+    monthly_salary = db.Column(db.Integer, nullable=False, default=0)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
     supervisor_name = db.Column(db.String(120), nullable=False)
     supervisor_phone = db.Column(db.String(32), nullable=False)
+    project = db.relationship("Project")
+
+
+class WageLedgerEntry(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    worker_id = db.Column(db.Integer, db.ForeignKey("worker.id"), nullable=False)
+    project_id = db.Column(db.Integer, db.ForeignKey("project.id"), nullable=False)
+    entry_type = db.Column(db.String(16), nullable=False)
+    amount = db.Column(db.Integer, nullable=False)
+    entry_date = db.Column(db.Date, nullable=False, default=date.today)
+    note = db.Column(db.String(240), nullable=False, default="")
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    worker = db.relationship("Worker")
     project = db.relationship("Project")
 
 
@@ -112,7 +129,8 @@ def _seed_accounts():
             password_hash=generate_password_hash(os.getenv("DEMO_ADMIN_PASSWORD", "admin123")),
             role="admin",
         ))
-    for worker in Worker.query.all():
+    demo_worker_codes = {"WK-2048", "WK-2051", "WK-1986", "WK-1972"}
+    for worker in Worker.query.filter(Worker.worker_code.in_(demo_worker_codes), Worker.is_active.is_(True)).all():
         if not LoginAccount.query.filter_by(username=worker.worker_code).first():
             db.session.add(LoginAccount(
                 username=worker.worker_code,
@@ -332,12 +350,61 @@ def _financial_category(category):
     return "Other"
 
 
+def _upgrade_schema():
+    worker_columns = {column["name"] for column in inspect(db.engine).get_columns("worker")}
+    additions = {
+        "pay_type": "VARCHAR(16) NOT NULL DEFAULT 'Daily'",
+        "monthly_salary": "INTEGER NOT NULL DEFAULT 0",
+        "is_active": "BOOLEAN NOT NULL DEFAULT 1",
+    }
+    for column, definition in additions.items():
+        if column not in worker_columns:
+            db.session.execute(text(f"ALTER TABLE worker ADD COLUMN {column} {definition}"))
+    db.session.commit()
+
+
+def _worker_data(worker):
+    return {
+        "id": worker.id,
+        "name": worker.full_name,
+        "phone": worker.phone,
+        "code": worker.worker_code,
+        "role": worker.role,
+        "project_id": worker.project_id,
+        "project": worker.project.name,
+        "pay_type": worker.pay_type,
+        "pay_rate": worker.daily_wage if worker.pay_type == "Daily" else worker.monthly_salary,
+        "daily_wage": worker.daily_wage,
+        "monthly_salary": worker.monthly_salary,
+        "is_active": worker.is_active,
+    }
+
+
+def _wage_entry_data(entry):
+    return {
+        "id": entry.id,
+        "worker_id": entry.worker_id,
+        "worker": entry.worker.full_name,
+        "project_id": entry.project_id,
+        "project": entry.project.name,
+        "entry_type": entry.entry_type,
+        "amount": entry.amount,
+        "date": entry.entry_date.isoformat(),
+        "note": entry.note,
+    }
+
+
 def require_role(*roles):
     def decorator(view):
         @wraps(view)
         def wrapped(*args, **kwargs):
             if session.get("role") not in roles:
                 return jsonify({"error": "Sign in with an authorized account to continue."}), 401
+            if session.get("role") == "worker":
+                worker = db.session.get(Worker, session.get("worker_id"))
+                if not worker or not worker.is_active:
+                    session.clear()
+                    return jsonify({"error": "This worker account is inactive. Contact an administrator."}), 403
             return view(*args, **kwargs)
         return wrapped
     return decorator
@@ -355,6 +422,7 @@ def create_app(database_url=None):
 
     with app.app_context():
         db.create_all()
+        _upgrade_schema()
         _seed_data()
         _seed_accounts()
 
@@ -408,6 +476,8 @@ def create_app(database_url=None):
         worker = Worker.query.filter_by(worker_code=candidate).first()
         if not worker:
             return jsonify({"error": "We could not match that worker ID. Use the code from your team profile."}), 404
+        if not worker.is_active:
+            return jsonify({"error": "This worker profile is inactive. Contact an administrator."}), 403
         if phone and worker.phone and phone != worker.phone:
             return jsonify({"error": "That phone number does not match the worker record for this ID."}), 400
         if full_name and worker.full_name and full_name.lower() != worker.full_name.lower():
@@ -462,6 +532,8 @@ def create_app(database_url=None):
         account = LoginAccount.query.filter_by(username=username).first()
         if not account or account.role != role or not check_password_hash(account.password_hash, password):
             return jsonify({"error": "Check your login details and selected portal."}), 401
+        if account.worker and not account.worker.is_active:
+            return jsonify({"error": "This worker profile is inactive. Contact an administrator."}), 403
         session.clear()
         session["account_id"] = account.id
         session["role"] = account.role
@@ -510,19 +582,136 @@ def create_app(database_url=None):
             "logs": [_log_data(log) for log in logs],
             "tasks": [_task_data(task) for task in AssignedTask.query.order_by(AssignedTask.due_date, AssignedTask.id).all()],
             "inventory": [_inventory_data(item) for item in InventoryItem.query.order_by(InventoryItem.name).all()],
-            "workers": [{
-                "id": worker.id, "name": worker.full_name, "role": worker.role,
-                "code": worker.worker_code, "phone": worker.phone,
-                "project_id": worker.project_id,
-            } for worker in workers],
+            "workers": [_worker_data(worker) for worker in workers],
             "alarms": alarms,
             "metrics": {
                 "active_projects": len([p for p in projects if p.status == "In progress"]),
-                "workers_on_site": len(workers),
+                "workers_on_site": sum(worker.is_active for worker in workers),
                 "open_issues": WorkLog.query.filter_by(status="Needs attention").count(),
                 "due_tomorrow": len(alarms),
             },
         })
+
+    @app.get("/api/payroll")
+    @require_role("admin")
+    def payroll():
+        workers = Worker.query.order_by(Worker.full_name).all()
+        entries = WageLedgerEntry.query.order_by(
+            WageLedgerEntry.entry_date.desc(), WageLedgerEntry.id.desc()
+        ).all()
+        balances = {worker.id: {"earned": 0, "paid": 0, "advances": 0} for worker in workers}
+        for entry in entries:
+            totals = balances[entry.worker_id]
+            if entry.entry_type == "Earned":
+                totals["earned"] += entry.amount
+            elif entry.entry_type == "Paid":
+                totals["paid"] += entry.amount
+            else:
+                totals["advances"] += entry.amount
+        return jsonify({
+            "workers": [
+                {
+                    **_worker_data(worker),
+                    **balances[worker.id],
+                    "balance_due": balances[worker.id]["earned"] - balances[worker.id]["paid"] - balances[worker.id]["advances"],
+                }
+                for worker in workers
+            ],
+            "entries": [_wage_entry_data(entry) for entry in entries],
+        })
+
+    @app.post("/api/workers")
+    @require_role("admin")
+    def create_worker():
+        data = request.get_json(silent=True) or {}
+        name = str(data.get("name", "")).strip()
+        phone = str(data.get("phone", "")).strip()
+        code = str(data.get("code", "")).strip().upper()
+        role = str(data.get("role", "")).strip()
+        pay_type = str(data.get("pay_type", "")).strip()
+        supervisor_name = str(data.get("supervisor_name", "")).strip()
+        supervisor_phone = str(data.get("supervisor_phone", "")).strip()
+        try:
+            project_id = int(data.get("project_id"))
+            pay_rate = int(data.get("pay_rate"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Choose a project and enter a valid whole-dollar pay rate."}), 400
+        if not all((name, phone, code, role)) or len(code) > 32:
+            return jsonify({"error": "Complete the worker name, phone, ID, and role fields."}), 400
+        if pay_type not in {"Daily", "Monthly"} or pay_rate <= 0:
+            return jsonify({"error": "Choose daily or monthly pay and enter a rate greater than zero."}), 400
+        if not db.session.get(Project, project_id):
+            return jsonify({"error": "The selected project does not exist."}), 400
+        worker = Worker(
+            full_name=name,
+            phone=phone,
+            worker_code=code,
+            role=role,
+            project_id=project_id,
+            daily_wage=pay_rate if pay_type == "Daily" else 0,
+            pay_type=pay_type,
+            monthly_salary=pay_rate if pay_type == "Monthly" else 0,
+            supervisor_name=supervisor_name or "Project administrator",
+            supervisor_phone=supervisor_phone,
+        )
+        db.session.add(worker)
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            return jsonify({"error": "That worker ID or phone number is already registered."}), 409
+        return jsonify(_worker_data(worker)), 201
+
+    @app.patch("/api/workers/<int:worker_id>")
+    @require_role("admin")
+    def update_worker_status(worker_id):
+        worker = db.session.get(Worker, worker_id)
+        is_active = (request.get_json(silent=True) or {}).get("is_active")
+        if not worker:
+            return jsonify({"error": "Worker not found."}), 404
+        if not isinstance(is_active, bool):
+            return jsonify({"error": "Specify whether the worker profile should be active."}), 400
+        worker.is_active = is_active
+        db.session.commit()
+        return jsonify(_worker_data(worker))
+
+    @app.post("/api/wage-ledger")
+    @require_role("admin")
+    def create_wage_entry():
+        data = request.get_json(silent=True) or {}
+        entry_type = str(data.get("entry_type", "")).strip()
+        note = str(data.get("note", "")).strip()
+        try:
+            worker_id = int(data.get("worker_id"))
+            amount = int(data.get("amount"))
+            entry_date = date.fromisoformat(data.get("date", date.today().isoformat()))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Choose a worker and enter a valid whole-dollar amount and date."}), 400
+        worker = db.session.get(Worker, worker_id)
+        if not worker:
+            return jsonify({"error": "The selected worker does not exist."}), 400
+        if entry_type not in {"Earned", "Paid", "Advance"} or amount <= 0:
+            return jsonify({"error": "Choose earned wages, wage payment, or advance and enter an amount greater than zero."}), 400
+        entry = WageLedgerEntry(
+            worker_id=worker.id,
+            project_id=worker.project_id,
+            entry_type=entry_type,
+            amount=amount,
+            entry_date=entry_date,
+            note=note,
+        )
+        if entry_type == "Earned":
+            db.session.add(Expense(
+                project_id=worker.project_id,
+                description=f"Wages earned · {worker.full_name}",
+                category="Worker Wages & Salaries",
+                amount=amount,
+                expense_date=entry_date,
+            ))
+            worker.project.spent += amount
+        db.session.add(entry)
+        db.session.commit()
+        return jsonify(_wage_entry_data(entry)), 201
 
     @app.get("/api/financial-report")
     @require_role("admin")
@@ -582,6 +771,9 @@ def create_app(database_url=None):
             "code": worker.worker_code,
             "role": worker.role,
             "daily_wage": worker.daily_wage,
+            "pay_type": worker.pay_type,
+            "monthly_salary": worker.monthly_salary,
+            "pay_rate": worker.daily_wage if worker.pay_type == "Daily" else worker.monthly_salary,
             "project": _project_data(worker.project),
             "supervisor_name": worker.supervisor_name,
             "supervisor_phone": worker.supervisor_phone,
@@ -607,7 +799,7 @@ def create_app(database_url=None):
         except (TypeError, ValueError):
             return jsonify({"error": "Choose a worker and enter a valid completion percentage."}), 400
         worker = db.session.get(Worker, worker_id)
-        if not worker or not task or not 0 <= completion <= 100:
+        if not worker or not worker.is_active or not task or not 0 <= completion <= 100:
             return jsonify({"error": "Choose a valid worker, task, and completion percentage from 0 to 100."}), 400
         status = "Needs attention" if issue else (
             "Complete" if completion == 100 else "In progress"
@@ -692,7 +884,7 @@ def create_app(database_url=None):
             return jsonify({"error": "Choose a valid project, worker, and due date."}), 400
         project = db.session.get(Project, project_id)
         worker = db.session.get(Worker, worker_id)
-        if not title or not project or not worker or worker.project_id != project.id:
+        if not title or not project or not worker or not worker.is_active or worker.project_id != project.id:
             return jsonify({"error": "Choose a title and a worker assigned to the selected project."}), 400
         task = AssignedTask(
             title=title, description=description, project_id=project.id,

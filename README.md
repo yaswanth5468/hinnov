@@ -36,6 +36,8 @@ The application creates its tables and demo rows on first run. Existing database
 - Inventory tracks item SKU, category, quantity, unit, reorder threshold, and site location, and flags items at or below their reorder level.
 - The notification bell lists urgent pickups scheduled for tomorrow. The alarm toggle plays a short Tone.js chime after a user gesture.
 - Admins can post work logs, record expenses against project budgets, inspect the worker directory, and export a project CSV. Workers can post their own logs and simulated site-photo filenames.
+- Admins can register workers with a daily wage or monthly salary, assign a project, and deactivate/reactivate worker portal access. Government ID, address, and bank information are not collected.
+- The team directory includes a wage ledger for wages earned, payments, and advances. Outstanding balance is calculated as earned wages less payments and advances. Earned wages are added to the project's labor expenses; payments and advances are ledger settlements and are not double-counted as project costs.
 - The expenses page summarizes the complete expense ledger by project and cost category, compares project spending with budgets, exports all ledger rows as CSV, and provides a print-to-PDF report.
 
 ## API
@@ -44,6 +46,8 @@ The application creates its tables and demo rows on first run. Existing database
 - `GET /api/dashboard` — admin-only project, team, inventory, assignment, expense, work-log, order, metric, and alarm data.
 - `GET /api/financial-report` — admin-only complete expense ledger and per-project/category financial aggregates.
 - `GET /api/worker/me` — signed-in worker's own assignment, tasks, supervisor details, wage, and updates.
+- `POST /api/workers` and `PATCH /api/workers/<id>` — admin-only worker registration and active-status management.
+- `GET /api/payroll` and `POST /api/wage-ledger` — admin-only wage balances and wage/advance ledger entries.
 - `POST /api/tasks` — admin-only worker task assignment.
 - `PATCH /api/tasks/<id>` — allow the assigned worker to update their own task status.
 - `POST /api/inventory` — admin-only create/update stock by SKU.

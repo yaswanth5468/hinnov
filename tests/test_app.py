@@ -77,6 +77,91 @@ class PortalApiTests(unittest.TestCase):
         with self.app.app_context():
             self.assertIsNotNone(LoginAccount.query.filter_by(username="WK-9038").first())
 
+    def test_admin_registers_daily_and_monthly_workers(self):
+        daily = self.client.post("/api/workers", json={
+            "name": "Nia Brooks",
+            "phone": "+1 415 555 0911",
+            "code": "wk-9038",
+            "role": "General labor",
+            "project_id": 1,
+            "pay_type": "Daily",
+            "pay_rate": 260,
+        })
+        self.assertEqual(daily.status_code, 201)
+        self.assertEqual(daily.get_json()["code"], "WK-9038")
+        self.assertEqual(daily.get_json()["pay_rate"], 260)
+        self.assertTrue(daily.get_json()["is_active"])
+
+        monthly = self.client.post("/api/workers", json={
+            "name": "Omar Lee",
+            "phone": "+1 415 555 0912",
+            "code": "WK-9039",
+            "role": "Site coordinator",
+            "project_id": 2,
+            "pay_type": "Monthly",
+            "pay_rate": 5200,
+        })
+        self.assertEqual(monthly.status_code, 201)
+        self.assertEqual(monthly.get_json()["pay_type"], "Monthly")
+        self.assertEqual(monthly.get_json()["monthly_salary"], 5200)
+        self.assertEqual(monthly.get_json()["daily_wage"], 0)
+        duplicate = self.client.post("/api/workers", json={
+            "name": "Duplicate worker",
+            "phone": "+1 415 555 0911",
+            "code": "WK-9040",
+            "role": "General labor",
+            "project_id": 1,
+            "pay_type": "Daily",
+            "pay_rate": 260,
+        })
+        self.assertEqual(duplicate.status_code, 409)
+
+    def test_wage_ledger_tracks_earned_paid_advance_and_project_expense(self):
+        worker_id = self.client.get("/api/dashboard").get_json()["workers"][0]["id"]
+        for entry_type, amount in (("Earned", 1000), ("Paid", 600), ("Advance", 100)):
+            response = self.client.post("/api/wage-ledger", json={
+                "worker_id": worker_id,
+                "entry_type": entry_type,
+                "amount": amount,
+                "date": date.today().isoformat(),
+                "note": f"{entry_type} test",
+            })
+            self.assertEqual(response.status_code, 201)
+
+        report = self.client.get("/api/payroll")
+        self.assertEqual(report.status_code, 200)
+        worker = next(item for item in report.get_json()["workers"] if item["id"] == worker_id)
+        self.assertEqual(worker["earned"], 1000)
+        self.assertEqual(worker["paid"], 600)
+        self.assertEqual(worker["advances"], 100)
+        self.assertEqual(worker["balance_due"], 300)
+        self.assertEqual(len(report.get_json()["entries"]), 3)
+        project = next(
+            project for project in self.client.get("/api/dashboard").get_json()["projects"]
+            if project["id"] == worker["project_id"]
+        )
+        self.assertEqual(project["spent"], 1764200)
+        self.assertEqual(
+            self.client.get("/api/dashboard").get_json()["expenses"][0]["category"],
+            "Worker Wages & Salaries",
+        )
+
+    def test_worker_management_and_payroll_are_admin_only(self):
+        self.client.post("/api/auth/logout")
+        self.sign_in("worker", "WK-2048", "worker123")
+        self.assertEqual(self.client.get("/api/payroll").status_code, 401)
+        self.assertEqual(self.client.post("/api/workers", json={}).status_code, 401)
+        self.assertEqual(self.client.post("/api/wage-ledger", json={}).status_code, 401)
+
+    def test_deactivated_worker_cannot_sign_in_or_post_updates(self):
+        self.assertEqual(self.client.patch("/api/workers/1", json={"is_active": False}).status_code, 200)
+        self.client.post("/api/auth/logout")
+        self.assertEqual(self.sign_in("worker", "WK-2048", "worker123").status_code, 403)
+        self.sign_in("admin", "admin", "admin123")
+        update = self.client.patch("/api/workers/1", json={"is_active": True})
+        self.assertEqual(update.status_code, 200)
+        self.assertTrue(update.get_json()["is_active"])
+
     def test_sign_in_routes_to_dedicated_role_pages(self):
         self.client.post("/api/auth/logout")
         self.assertEqual(self.client.get("/").status_code, 200)

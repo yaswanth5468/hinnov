@@ -43,20 +43,27 @@ function renderSection(data) {
   ).join(""));
   if (section === "team") {
     bodyRows("workerRows", data.workers.map(worker =>
-      `<tr><td><strong>${escapeSection(worker.name)}</strong></td><td>${escapeSection(worker.role)}</td><td><span class="order-reference">${escapeSection(worker.code)}</span></td><td>${escapeSection(projects.get(worker.project_id))}</td><td><a class="directory-phone" href="tel:${escapeSection(worker.phone)}">${escapeSection(worker.phone)}</a></td></tr>`
+      `<tr><td><strong>${escapeSection(worker.name)}</strong></td><td>${escapeSection(worker.role)}</td><td><span class="order-reference">${escapeSection(worker.code)}</span></td><td>${escapeSection(projects.get(worker.project_id))}</td><td><a class="directory-phone" href="tel:${escapeSection(worker.phone)}">${escapeSection(worker.phone)}</a></td><td>${sectionMoney(worker.pay_rate)} / ${worker.pay_type === "Daily" ? "day" : "month"}</td><td><span class="status-pill ${worker.is_active ? "status-ready" : ""}">${worker.is_active ? "Active" : "Inactive"}</span></td><td><button class="button button-secondary worker-status-button" data-worker-id="${worker.id}" data-next-active="${!worker.is_active}">${worker.is_active ? "Deactivate" : "Reactivate"}</button></td></tr>`
     ).join(""));
     bodyRows("taskRows", data.tasks.map(task =>
       `<tr><td><strong>${escapeSection(task.title)}</strong><br><span class="subtle-cell">${escapeSection(task.description)}</span></td><td>${escapeSection(task.worker)}</td><td>${escapeSection(task.project)}</td><td>${sectionDate(task.due_date)}</td><td><span class="status-pill ${task.status === "Complete" ? "status-ready" : ""}">${escapeSection(task.status)}</span></td></tr>`
     ).join(""));
     const projectSelect = document.querySelector("#assignProject");
     const workerSelect = document.querySelector("#assignWorker");
+    const workerProject = document.querySelector("#workerProject");
+    const wageWorker = document.querySelector("#wageWorker");
     projectSelect.innerHTML = data.projects.map(project => `<option value="${project.id}">${escapeSection(project.name)}</option>`).join("");
+    workerProject.innerHTML = projectSelect.innerHTML;
+    const activeWorkers = data.workers.filter(worker => worker.is_active);
+    wageWorker.innerHTML = activeWorkers.map(worker =>
+      `<option value="${worker.id}">${escapeSection(worker.name)} · ${escapeSection(worker.code)}</option>`
+    ).join("");
     function filterWorkers() {
       const projectId = Number(projectSelect.value);
-      workerSelect.innerHTML = data.workers.filter(worker => worker.project_id === projectId)
+      workerSelect.innerHTML = activeWorkers.filter(worker => worker.project_id === projectId)
         .map(worker => `<option value="${worker.id}">${escapeSection(worker.name)} · ${escapeSection(worker.role)}</option>`).join("");
     }
-    projectSelect.addEventListener("change", filterWorkers);
+    projectSelect.onchange = filterWorkers;
     filterWorkers();
   }
   if (section === "activity") bodyRows("activityRows", data.logs.map(log =>
@@ -75,6 +82,23 @@ function renderSection(data) {
       `<tr><td><span class="order-reference">${escapeSection(item.sku)}</span></td><td><strong>${escapeSection(item.name)}</strong></td><td>${escapeSection(item.category)}</td><td><strong>${item.quantity} ${escapeSection(item.unit)}</strong></td><td>${item.reorder_level} ${escapeSection(item.unit)}</td><td>${escapeSection(item.location)}</td><td><span class="status-pill ${item.low_stock ? "" : "status-ready"}">${item.low_stock ? "Reorder" : "In stock"}</span></td></tr>`
     ).join(""));
   }
+}
+
+function renderPayroll(data) {
+  const totals = data.workers.reduce((summary, worker) => ({
+    earned: summary.earned + worker.earned,
+    paid: summary.paid + worker.paid,
+    advances: summary.advances + worker.advances,
+    due: summary.due + worker.balance_due,
+  }), { earned: 0, paid: 0, advances: 0, due: 0 });
+  document.querySelector("#payrollSummary").innerHTML = `
+    <article class="finance-stat"><span>Total wages earned</span><strong>${sectionMoney(totals.earned)}</strong></article>
+    <article class="finance-stat"><span>Paid / advanced</span><strong>${sectionMoney(totals.paid + totals.advances)}</strong><small>Payments ${sectionMoney(totals.paid)} · advances ${sectionMoney(totals.advances)}</small></article>
+    <article class="finance-stat"><span>Net outstanding</span><strong>${sectionMoney(totals.due)}</strong></article>`;
+  const rows = data.entries.map(entry =>
+    `<tr><td>${sectionDate(entry.date)}</td><td><strong>${escapeSection(entry.worker)}</strong></td><td>${escapeSection(entry.project)}</td><td>${escapeSection(entry.entry_type)}</td><td>${escapeSection(entry.note || "—")}</td><td><strong>${sectionMoney(entry.amount)}</strong></td></tr>`
+  ).join("");
+  document.querySelector("#wageRows").innerHTML = rows || `<tr><td colspan="6">No wage entries recorded yet.</td></tr>`;
 }
 
 function renderFinancialReport(report) {
@@ -125,6 +149,9 @@ async function loadSection() {
     if (section === "expenses") {
       renderFinancialReport(await sectionRequest("/api/financial-report"));
     }
+    if (section === "team") {
+      renderPayroll(await sectionRequest("/api/payroll"));
+    }
   } catch (error) {
     feedback(error.message, true);
   }
@@ -141,6 +168,72 @@ mobileMenu?.addEventListener("click", () => document.querySelector("#sidebar").c
 document.querySelector("#jumpAssign")?.addEventListener("click", () =>
   document.querySelector("#assignPanel").scrollIntoView({ behavior: "smooth" })
 );
+document.querySelector("#openWorkerForm")?.addEventListener("click", () => {
+  const panel = document.querySelector("#workerFormPanel");
+  panel.classList.toggle("hidden");
+  panel.scrollIntoView({ behavior: "smooth", block: "center" });
+});
+document.querySelector("#jumpWageLedger")?.addEventListener("click", () =>
+  document.querySelector("#wageLedgerPanel").scrollIntoView({ behavior: "smooth" })
+);
+document.querySelector("#workerPayType")?.addEventListener("change", event => {
+  document.querySelector("#workerPayHint").textContent =
+    event.target.value === "Daily" ? "Amount per work day" : "Amount per month";
+});
+document.querySelector("#workerRows")?.addEventListener("click", async event => {
+  const button = event.target.closest("[data-worker-id]");
+  if (!button) return;
+  button.disabled = true;
+  try {
+    await sectionRequest(`/api/workers/${button.dataset.workerId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ is_active: button.dataset.nextActive === "true" }),
+    });
+    await loadSection();
+    feedback(button.dataset.nextActive === "true" ? "Worker reactivated." : "Worker deactivated.");
+  } catch (error) {
+    button.disabled = false;
+    feedback(error.message, true);
+  }
+});
+document.querySelector("#workerForm")?.addEventListener("submit", async event => {
+  event.preventDefault();
+  const errorBox = document.querySelector("#workerError");
+  errorBox.classList.add("hidden");
+  try {
+    const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+    await sectionRequest("/api/workers", { method: "POST", body: JSON.stringify(payload) });
+    event.currentTarget.reset();
+    document.querySelector("#workerPayHint").textContent = "Amount per work day";
+    await loadSection();
+    feedback("Worker registered. They can create their portal account using the worker ID.");
+  } catch (error) {
+    errorBox.textContent = error.message;
+    errorBox.classList.remove("hidden");
+  }
+});
+if (document.querySelector("#wageDate")) {
+  document.querySelector("#wageDate").value = new Date().toISOString().slice(0, 10);
+}
+document.querySelector("#wageForm")?.addEventListener("submit", async event => {
+  event.preventDefault();
+  const errorBox = document.querySelector("#wageError");
+  errorBox.classList.add("hidden");
+  try {
+    await sectionRequest("/api/wage-ledger", {
+      method: "POST",
+      body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())),
+    });
+    const today = new Date().toISOString().slice(0, 10);
+    event.currentTarget.reset();
+    document.querySelector("#wageDate").value = today;
+    await loadSection();
+    feedback("Wage ledger entry recorded.");
+  } catch (error) {
+    errorBox.textContent = error.message;
+    errorBox.classList.remove("hidden");
+  }
+});
 document.querySelector("#openInventoryForm")?.addEventListener("click", () => {
   const panel = document.querySelector("#inventoryFormPanel");
   panel.classList.toggle("hidden");
