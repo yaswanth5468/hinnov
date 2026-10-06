@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} · Fieldwork</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body data-section="{{ section }}">
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="/admin/overview"><span class="brand-mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 24V9l10-5 10 5v15H6Z"/><path d="M12 24v-9h8v9M6 11l10 5 10-5"/></svg></span><span class="brand-copy">fieldwork<span>PROJECT OPERATIONS</span></span></a>
+      <div class="workspace-label">ADMIN WORKSPACE</div>
+      <nav class="side-nav" aria-label="Main navigation">
+        {% for key, label, icon in [('overview','Overview','⌂'),('projects','Projects','▤'),('orders','Purchase orders','▧'),('team','Team directory','♙'),('activity','Site activity','◷'),('expenses','Expenses','$'),('inventory','Inventory','▦')] %}
+        <a class="nav-item {% if section == key %}active{% endif %}" href="/admin/{{ key }}"><span class="nav-icon">{{ icon }}</span>{{ label }}</a>
+        {% endfor %}
+      </nav>
+      <div class="sidebar-spacer"></div>
+      <div class="site-card"><div class="site-card-head"><span class="live-dot"></span>LIVE SITE STATUS</div><strong>All sites operational</strong><span>Inventory and assignments update live</span><div class="mini-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+      <div class="sidebar-bottom"><a class="nav-item" href="/admin/expenses"><span class="nav-icon">⚙</span>Finance & expenses</a><div class="profile-mini"><div class="avatar avatar-green">JD</div><div><strong>Jordan Davis</strong><span>Administrator</span></div><button class="more-btn" data-logout>↗</button></div></div>
+    </aside>
+    <main class="main-area">
+      <header class="topbar"><button class="mobile-menu" id="mobileMenu" aria-label="Open navigation">☰</button><div class="breadcrumbs">Workspace <span>/</span> <strong>{{ title }}</strong></div><div class="top-actions"><a class="text-button section-overview-link" href="/admin/overview">Overview <span>→</span></a><button class="button button-secondary sign-out-button" data-logout>Sign out</button></div></header>
+      <section class="page-content section-page">
+        <div class="page-heading"><div><div class="eyebrow">FIELDWORK · ADMIN</div><h1>{{ title }}</h1><p>Manage your {{ title|lower }} across every active site.</p></div><div class="heading-actions">{% if section == 'inventory' %}<button class="button button-primary" id="openInventoryForm">＋ Add inventory item</button>{% elif section == 'team' %}<button class="button button-primary" id="jumpAssign">＋ Assign work</button>{% elif section == 'expenses' %}<button class="button button-secondary print-hidden" id="exportExpensesCsv">Export CSV</button><button class="button button-secondary print-hidden" id="exportExpensesPdf">Print / Save PDF</button>{% endif %}</div></div>
+        {% if section == 'not-found' %}
+        <section class="panel section-panel"><div class="empty-state"><h2>Page not found</h2><a class="button button-primary" href="/admin/overview">Back to overview</a></div></section>
+        {% elif section == 'projects' %}
+        <section class="panel section-panel"><div class="panel-heading"><div><h2>Project portfolio</h2><p>Progress, budget, and delivery across all sites</p></div></div><div class="table-wrap"><table><thead><tr><th>PROJECT</th><th>CLIENT</th><th>LOCATION</th><th>PROGRESS</th><th>BUDGET</th><th>SPENT</th><th>DUE</th></tr></thead><tbody id="projectRows"></tbody></table></div></section>
+        {% elif section == 'orders' %}
+        <section class="panel section-panel"><div class="panel-heading"><div><h2>Purchase orders</h2><p>Upcoming supplier pickups and delivery dates</p></div></div><div class="table-wrap"><table><thead><tr><th>REFERENCE</th><th>SUPPLIER</th><th>ITEM</th><th>PROJECT</th><th>PICKUP</th><th>STATUS</th></tr></thead><tbody id="orderRows"></tbody></table></div></section>
+        {% elif section == 'team' %}
+        <section class="panel section-panel"><div class="panel-heading"><div><h2>Worker directory</h2><p>Team assignments and site contacts</p></div></div><div class="table-wrap"><table><thead><tr><th>WORKER</th><th>ROLE</th><th>WORKER ID</th><th>PROJECT</th><th>PHONE</th></tr></thead><tbody id="workerRows"></tbody></table></div></section>
+        <section class="panel section-panel assign-panel" id="assignPanel"><div class="panel-heading"><div><h2>Assign work</h2><p>Send a task directly to a worker's portal</p></div></div><form class="section-form" id="assignForm"><div class="form-columns"><label>Task title<input name="title" placeholder="e.g. Inspect level 5 scaffolding" required></label><label>Assigned worker<select name="worker_id" id="assignWorker" required></select></label></div><div class="form-columns"><label>Project<select name="project_id" id="assignProject" required></select></label><label>Due date<input name="due_date" type="date" required></label></div><label>Instructions<textarea name="description" rows="2" placeholder="Add site location or completion notes"></textarea></label><div class="form-error hidden" id="assignError"></div><button class="button button-primary">Assign task</button></form></section>
+        <section class="panel section-panel"><div class="panel-heading"><div><h2>Assigned tasks</h2><p>Current worker task allocations</p></div></div><div class="table-wrap"><table><thead><tr><th>TASK</th><th>WORKER</th><th>PROJECT</th><th>DUE</th><th>STATUS</th></tr></thead><tbody id="taskRows"></tbody></table></div></section>
+        {% elif section == 'activity' %}
+        <section class="panel section-panel"><div class="panel-heading"><div><h2>Site work logs</h2><p>Daily work updates, progress, and reported issues</p></div></div><div class="table-wrap"><table><thead><tr><th>TASK</th><th>WORKER</th><th>PROJECT</th><th>STATUS</th><th>COMPLETE</th><th>ISSUE</th><th>UPDATED</th></tr></thead><tbody id="activityRows"></tbody></table></div></section>
+        {% elif section == 'expenses' %}
+        <section class="finance-report" id="financeReport">
+          <header class="print-report-heading"><h1>Expense &amp; budget report</h1><p>Prepared <span id="reportDate"></span></p></header>
+          <div class="finance-summary" id="financeSummary"></div>
+          <section class="panel finance-category-panel">
+            <div class="panel-heading"><div><h2>Recorded cost breakdown</h2><p>All ledger expenses grouped by cost type</p></div></div>
+            <div class="finance-category-grid" id="financeCategories"></div>
+          </section>
+          <section class="panel section-panel finance-project-panel">
+            <div class="panel-heading"><div><h2>Project spending vs. budget</h2><p>Project spending is compared with each approved budget</p></div></div>
+            <div class="finance-project-list" id="financeProjects"></div>
+          </section>
+        </section>
+        <section class="panel section-panel"><div class="panel-heading"><div><h2>Project expenses</h2><p>Posted costs and their project budgets</p></div></div><div class="table-wrap"><table><thead><tr><th>DESCRIPTION</th><th>CATEGORY</th><th>PROJECT</th><th>CLIENT</th><th>DATE</th><th>AMOUNT</th></tr></thead><tbody id="expenseRows"></tbody></table></div></section>
+        {% elif section == 'inventory' %}
+        <section class="inventory-summary" id="inventorySummary"></section>
+        <section class="panel section-panel"><div class="panel-heading"><div><h2>Materials & equipment</h2><p>Stock levels and reorder thresholds across your sites</p></div></div><div class="table-wrap"><table><thead><tr><th>SKU</th><th>ITEM</th><th>CATEGORY</th><th>ON HAND</th><th>REORDER AT</th><th>LOCATION</th><th>STATUS</th></tr></thead><tbody id="inventoryRows"></tbody></table></div></section>
+        <section class="panel section-panel hidden" id="inventoryFormPanel"><div class="panel-heading"><div><h2>Add or update stock</h2><p>Use the same SKU to update an existing item.</p></div></div><form class="section-form" id="inventoryForm"><div class="form-columns"><label>SKU<input name="sku" placeholder="MAT-STEEL-06" required></label><label>Item name<input name="name" placeholder="Construction material" required></label></div><div class="form-columns"><label>Category<select name="category"><option>Materials</option><option>Tools</option><option>Safety</option><option>Equipment</option></select></label><label>Location<input name="location" placeholder="Site and storage area" required></label></div><div class="form-columns"><label>Quantity<input name="quantity" type="number" min="0" required></label><label>Unit<input name="unit" placeholder="bags, units, kg" required></label></div><div class="form-columns"><label>Reorder level<input name="reorder_level" type="number" min="0" required></label><span></span></div><div class="form-error hidden" id="inventoryError"></div><button class="button button-primary">Save inventory item</button></form></section>
+        {% endif %}
+        <div class="section-feedback hidden" id="sectionFeedback"></div>
+      </section>
+    </main>
+  </div>
+  <script src="{{ url_for('static', filename='js/section.js') }}"></script>
+</body>
+</html>

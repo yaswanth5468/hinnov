@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f7f5">
+  <title>Fieldwork — Project operations</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#" aria-label="Fieldwork home">
+        <span class="brand-mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 24V9l10-5 10 5v15H6Z"/><path d="M12 24v-9h8v9M6 11l10 5 10-5"/></svg></span>
+        <span class="brand-copy">fieldwork<span>PROJECT OPERATIONS</span></span>
+      </a>
+      <div class="workspace-label">WORKSPACE</div>
+      <nav class="side-nav" aria-label="Main navigation">
+        <a class="nav-item active" href="/admin/overview"><span class="nav-icon">⌂</span>Overview</a>
+        <a class="nav-item" href="/admin/projects"><span class="nav-icon">▤</span>Projects<span class="nav-count" id="projectNavCount">3</span></a>
+        <a class="nav-item" href="/admin/orders"><span class="nav-icon">▧</span>Purchase orders<span class="nav-count alert-count" id="orderNavCount">2</span></a>
+        <a class="nav-item" href="/admin/team"><span class="nav-icon">♙</span>Team directory</a>
+        <a class="nav-item" href="/admin/activity"><span class="nav-icon">◷</span>Site activity</a>
+        <a class="nav-item" href="/admin/expenses"><span class="nav-icon">$</span>Expenses</a>
+        <a class="nav-item" href="/admin/inventory"><span class="nav-icon">▦</span>Inventory</a>
+      </nav>
+      <div class="sidebar-spacer"></div>
+      <div class="site-card">
+        <div class="site-card-head"><span class="live-dot"></span>LIVE SITE STATUS</div>
+        <strong>All sites operational</strong>
+        <span>Last updated just now</span>
+        <div class="mini-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      </div>
+      <div class="sidebar-bottom">
+        <a class="nav-item" href="/admin/expenses"><span class="nav-icon">⚙</span>Finance & expenses</a>
+        <div class="profile-mini"><div class="avatar avatar-green">JD</div><div><strong>Jordan Davis</strong><span>Project administrator</span></div><button class="more-btn" data-logout aria-label="Sign out">↗</button></div>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <button class="mobile-menu" id="mobileMenu" aria-label="Open navigation">☰</button>
+        <div class="breadcrumbs">Workspace <span>/</span> <strong id="crumbTitle">Overview</strong></div>
+        <div class="top-actions">
+          <span class="role-btn selected">Admin portal</span>
+          <button class="icon-button search-trigger" id="searchTrigger" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 5 5"/></svg></button>
+          <button class="icon-button notification-trigger" id="notificationTrigger" aria-label="Notifications">
+            <svg viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg><span class="notification-dot" id="bellBadge">2</span>
+          </button>
+          <div class="top-divider"></div><div class="avatar avatar-top">JD</div><button class="button button-secondary sign-out-button" data-logout>Sign out</button>
+        </div>
+      </header>
+
+      <section class="page-content" id="adminView">
+        <div class="page-heading">
+          <div><div class="eyebrow" id="todayLabel">MONDAY, OCTOBER 05</div><h1>Good morning, Jordan <span class="wave">✳</span></h1><p>Here’s what’s happening across your sites today.</p></div>
+          <div class="heading-actions"><button class="button button-secondary" id="exportButton"><svg viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4"/></svg>Export report</button><button class="button button-secondary" id="newExpenseButton">＋ Log expense</button><button class="button button-primary" id="newOrderButton"><span>＋</span> New purchase order</button></div>
+        </div>
+
+        <div class="alarm-banner" id="alarmBanner">
+          <div class="alarm-symbol"><svg viewBox="0 0 24 24"><path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v5m0 3h.01"/></svg></div>
+          <div class="alarm-copy"><strong><span id="alarmCount">2</span> pickups scheduled for tomorrow</strong><span>Action needed — confirm your collection arrangements with suppliers.</span></div>
+          <a class="banner-link" href="/admin/orders">Review orders <span>→</span></a>
+          <button class="banner-close" id="dismissBanner" aria-label="Dismiss alert">×</button>
+        </div>
+
+        <div class="metric-grid">
+          <article class="metric-card"><div class="metric-top"><span>Active projects</span><span class="metric-icon icon-lavender">▤</span></div><div class="metric-value" id="activeMetric">3</div><div class="metric-foot"><span class="metric-positive">↑ 1</span> <span>from last month</span><span class="sparkline spark-purple">⌁</span></div></article>
+          <article class="metric-card"><div class="metric-top"><span>Workers on site</span><span class="metric-icon icon-mint">♙</span></div><div class="metric-value" id="workerMetric">24</div><div class="metric-foot"><span class="metric-neutral">Across 3 sites</span><span class="sparkline spark-green">⌁</span></div></article>
+          <article class="metric-card"><div class="metric-top"><span>Open issues</span><span class="metric-icon icon-peach">⚑</span></div><div class="metric-value" id="issueMetric">2</div><div class="metric-foot"><span class="metric-attention">Needs attention</span><span class="sparkline spark-orange">⌁</span></div></article>
+          <article class="metric-card"><div class="metric-top"><span>Budget utilization</span><span class="metric-icon icon-blue">↗</span></div><div class="metric-value" id="budgetMetric">71.4%</div><div class="metric-foot"><span class="metric-neutral">On track</span><span class="sparkline spark-blue">⌁</span></div></article>
+        </div>
+
+        <div class="content-grid">
+          <section class="panel projects-panel" id="projectsPanel">
+            <div class="panel-heading"><div><h2>Project progress</h2><p>Live updates from your active sites</p></div><div class="heading-inline-actions"><button class="text-button" id="newLogButton">＋ Log work</button><a class="text-button" href="/admin/projects">All projects <span>→</span></a></div></div>
+            <div class="project-list" id="projectList"></div>
+          </section>
+          <section class="panel activity-panel" id="activityPanel">
+            <div class="panel-heading"><div><h2>Site activity</h2><p>Latest updates from the field</p></div><a class="text-button" href="/admin/activity">All activity →</a></div>
+            <div class="activity-list" id="activityList"></div>
+            <a class="activity-footer" href="/admin/activity">View all activity <span>→</span></a>
+          </section>
+        </div>
+
+        <section class="panel orders-panel" id="ordersPanel">
+          <div class="panel-heading"><div><h2>Upcoming pickups</h2><p>Materials and equipment scheduled for collection</p></div><a class="text-button" href="/admin/orders">View all orders <span>→</span></a></div>
+          <div class="table-wrap"><table><thead><tr><th>ORDER</th><th>SUPPLIER</th><th>ITEM</th><th>PROJECT</th><th>PICKUP DATE</th><th>STATUS</th><th></th></tr></thead><tbody id="orderRows"></tbody></table></div>
+        </section>
+        <div class="management-grid">
+          <section class="panel" id="teamPanel">
+            <div class="panel-heading"><div><h2>Worker directory</h2><p>Assigned teams and site contacts</p></div><a class="text-button" href="/admin/team">Manage team <span>→</span></a></div>
+            <div class="table-wrap"><table><thead><tr><th>WORKER</th><th>ROLE</th><th>WORKER ID</th><th>PROJECT</th><th>PHONE</th></tr></thead><tbody id="workerRows"></tbody></table></div>
+          </section>
+          <section class="panel" id="expensesPanel">
+            <div class="panel-heading"><div><h2>Recent expenses</h2><p>Track project spend as it happens</p></div><button class="text-button" id="panelExpenseButton">＋ Add expense</button></div>
+            <div class="expense-list" id="expenseList"></div>
+          </section>
+        </div>
+        <footer class="footer-note"><span>Fieldwork operations</span><span>Built for the people who build everything.</span></footer>
+      </section>
+
+    </main>
+  </div>
+
+  <div class="notification-popover hidden" id="notificationPopover">
+    <div class="popover-head"><div><strong>Notifications</strong><span id="notificationSummary">2 items need your attention</span></div><button class="text-button" id="markRead">Mark all read</button></div>
+    <div id="notificationList"></div>
+    <div class="sound-row"><div><strong>Alarm sound</strong><span>Play a chime for urgent pickups</span></div><button class="sound-toggle" id="soundToggle" role="switch" aria-checked="false"><span></span></button></div>
+  </div>
+
+  <div class="modal-backdrop hidden" id="orderModal">
+    <form class="modal-card" id="orderForm">
+      <div class="modal-heading"><div><div class="eyebrow">PROCUREMENT</div><h2>Create purchase order</h2></div><button type="button" class="close-modal" data-close-modal aria-label="Close">×</button></div>
+      <label>Order reference<input name="reference" placeholder="PO-2850" required></label>
+      <div class="form-columns"><label>Supplier<input name="supplier" placeholder="Supplier name" required></label><label>Item<input name="item" placeholder="Materials or equipment" required></label></div>
+      <div class="form-columns"><label>Quantity<input name="quantity" placeholder="e.g. 20 units" required></label><label>Pickup date<input name="pickup_date" type="date" required></label></div>
+      <label>Project<select name="project_id" id="orderProject" required></select></label>
+      <div class="modal-error hidden" id="orderError"></div>
+      <div class="modal-actions"><button type="button" class="button button-secondary" data-close-modal>Cancel</button><button class="button button-primary">Save purchase order</button></div>
+    </form>
+  </div>
+  <div class="modal-backdrop hidden" id="logModal">
+    <form class="modal-card" id="logForm">
+      <div class="modal-heading"><div><div class="eyebrow">SITE ACTIVITY</div><h2>Post a daily work log</h2></div><button type="button" class="close-modal" data-close-modal aria-label="Close">×</button></div>
+      <label>Worker / supervisor<select name="worker_id" id="logWorker" required></select></label>
+      <label>Task or work area<input name="task" placeholder="e.g. Level 4 — steel reinforcement" required></label>
+      <label>Task completion <span id="completionValue">50%</span><input name="completion" type="range" min="0" max="100" value="50" id="completionRange"></label>
+      <label>Site photo <input name="photo" type="file" accept="image/*" id="photoInput"><span class="field-note">Photo upload is simulated; only the selected filename is recorded.</span></label>
+      <label>Report an issue (optional)<textarea name="issue" rows="3" placeholder="Describe a blocker, safety concern, or material shortage"></textarea></label>
+      <div class="modal-error hidden" id="logError"></div>
+      <div class="modal-actions"><button type="button" class="button button-secondary" data-close-modal>Cancel</button><button class="button button-primary">Submit work log</button></div>
+    </form>
+  </div>
+  <div class="modal-backdrop hidden" id="expenseModal">
+    <form class="modal-card" id="expenseForm">
+      <div class="modal-heading"><div><div class="eyebrow">PROJECT FINANCE</div><h2>Log a project expense</h2></div><button type="button" class="close-modal" data-close-modal aria-label="Close">×</button></div>
+      <label>Description<input name="description" placeholder="e.g. Site safety equipment" required></label>
+      <div class="form-columns"><label>Category<select name="category" required><option value="Materials">Materials</option><option value="Worker Wages &amp; Salaries">Worker Wages &amp; Salaries</option><option value="Food &amp; Allowances">Food &amp; Allowances</option><option value="Tool &amp; Equipment">Tool &amp; Equipment</option><option value="Other">Other</option></select></label><label>Amount (USD)<input name="amount" type="number" min="1" step="1" placeholder="250" required></label></div>
+      <div class="form-columns"><label>Project<select name="project_id" id="expenseProject" required></select></label><label>Date<input name="date" type="date" id="expenseDate" required></label></div>
+      <div class="modal-error hidden" id="expenseError"></div>
+      <div class="modal-actions"><button type="button" class="button button-secondary" data-close-modal>Cancel</button><button class="button button-primary">Save expense</button></div>
+    </form>
+  </div>
+  <div class="toast hidden" id="toast"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/15.1.22/Tone.js"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My workday · Fieldwork</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body class="worker-page">
+  <header class="worker-topbar"><a class="brand" href="/worker"><span class="brand-mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 24V9l10-5 10 5v15H6Z"/><path d="M12 24v-9h8v9M6 11l10 5 10-5"/></svg></span><span class="brand-copy">fieldwork<span>WORKER PORTAL</span></span></a><div class="worker-top-actions"><span class="worker-portal-label"><span class="live-dot"></span> My site portal</span><button class="button button-secondary" data-logout>Sign out</button></div></header>
+  <main class="worker-page-content">
+    <div class="worker-greeting"><div><div class="eyebrow">YOUR FIELDWORK, AT A GLANCE</div><h1 id="workerGreeting">Your workday.</h1><p>Your assignment, schedule, and daily details are all in one place.</p></div><div class="worker-today" id="workerToday"></div></div>
+    <div id="workerContent"><div class="worker-loading">Loading your site details…</div></div>
+    <div class="worker-toast hidden" id="workerToast"></div>
+  </main>
+  <script src="{{ url_for('static', filename='js/worker.js') }}"></script>
+</body>
+</html>

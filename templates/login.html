@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · Fieldwork</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body class="login-page">
+  <main class="login-layout">
+    <section class="login-story">
+      <a class="brand login-brand" href="/"><span class="brand-mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 24V9l10-5 10 5v15H6Z"/><path d="M12 24v-9h8v9M6 11l10 5 10-5"/></svg></span><span class="brand-copy">fieldwork<span>PROJECT OPERATIONS</span></span></a>
+      <div class="login-message"><span class="eyebrow">BUILT FOR THE FIELD</span><h1>Every site.<br>Every team.<br><em>One clear view.</em></h1><p>Keep projects moving with the people, materials, and plans that bring them to life.</p><div class="login-stats"><div><strong>03</strong><span>active sites</span></div><i></i><div><strong>24</strong><span>field workers</span></div><i></i><div><strong>01</strong><span>shared goal</span></div></div></div>
+      <div class="login-story-foot">FIELDWORK OPERATIONS <span>·</span> MADE FOR BUILDERS</div>
+    </section>
+    <section class="login-panel">
+      <form class="login-card" id="loginForm">
+        <div class="login-mobile-brand"><span class="brand-mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 24V9l10-5 10 5v15H6Z"/><path d="M12 24v-9h8v9M6 11l10 5 10-5"/></svg></span><span class="brand-copy">fieldwork</span></div>
+        <span class="eyebrow">WELCOME BACK</span><h2>Sign in to your workspace</h2><p class="login-subtitle">Choose your portal and enter your account details.</p>
+        <label class="login-label" for="portalRole">PORTAL</label>
+        <select id="portalRole" name="role"><option value="admin">Administrator</option><option value="worker">Worker</option></select>
+        <label class="login-label" for="loginUsername">USERNAME / WORKER ID</label>
+        <input id="loginUsername" name="username" autocomplete="username" placeholder="Enter your username" required>
+        <label class="login-label" for="loginPassword">PASSWORD</label>
+        <input id="loginPassword" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required>
+        <div class="login-error hidden" id="loginError" role="alert"></div>
+        <button class="button button-primary login-submit">Sign in <span>→</span></button>
+        <div class="login-security">
+          <span>Need a new account?</span>
+          <a href="/signup">Sign up</a>
+        </div>
+        <div class="demo-credentials" id="demoCredentials"><strong>DEMO ACCESS</strong><span>Admin: <code>admin</code> / <code>admin123</code></span><span>Worker: <code>WK-2048</code> / <code>worker123</code></span></div>
+        <div class="login-security">Your account only sees the portal assigned to your role.</div>
+      </form>
+    </section>
+  </main>
+  <script src="{{ url_for('static', filename='js/login.js') }}"></script>
+</body>
+</html>
