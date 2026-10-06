@@ -129,8 +129,8 @@
       <div class="modal-heading"><div><div class="eyebrow">SITE ACTIVITY</div><h2>Post a daily work log</h2></div><button type="button" class="close-modal" data-close-modal aria-label="Close">×</button></div>
       <label>Worker / supervisor<select name="worker_id" id="logWorker" required></select></label>
       <label>Task or work area<input name="task" placeholder="e.g. Level 4 — steel reinforcement" required></label>
-      <label>Task completion <span id="completionValue">50%</span><input name="completion" type="range" min="0" max="100" value="50" id="completionRange"></label>
-      <label>Site photo <input name="photo" type="file" accept="image/*" id="photoInput"><span class="field-note">Photo upload is simulated; only the selected filename is recorded.</span></label>
+      <label>Project completion <span id="completionValue">50%</span><input name="completion" type="range" min="0" max="100" value="50" id="completionRange"></label>
+      <label>Site photo <input name="photo" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" id="photoInput"><span class="field-note">Optional JPEG, PNG, or WebP image (max 5 MB).</span></label>
       <label>Report an issue (optional)<textarea name="issue" rows="3" placeholder="Describe a blocker, safety concern, or material shortage"></textarea></label>
       <div class="modal-error hidden" id="logError"></div>
       <div class="modal-actions"><button type="button" class="button button-secondary" data-close-modal>Cancel</button><button class="button button-primary">Submit work log</button></div>

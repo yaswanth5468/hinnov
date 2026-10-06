@@ -1,7 +1,10 @@
+import base64
+from io import BytesIO
 import unittest
 from datetime import date, timedelta
+from pathlib import Path
 
-from app import LoginAccount, Worker, create_app, db
+from app import LoginAccount, PHOTO_MAX_BYTES, WorkLog, Worker, create_app, db
 
 
 class PortalApiTests(unittest.TestCase):
@@ -200,6 +203,80 @@ class PortalApiTests(unittest.TestCase):
         dashboard = self.client.get("/api/dashboard").get_json()
         self.assertEqual(dashboard["metrics"]["open_issues"], 2)
         self.assertEqual(dashboard["logs"][0]["task"], "Install level 5 reinforcement")
+        self.assertEqual(
+            next(project["progress"] for project in dashboard["projects"] if project["id"] == 1),
+            65,
+        )
+
+    def test_work_log_upload_is_private_and_updates_project_progress(self):
+        dashboard = self.client.get("/api/dashboard").get_json()
+        worker = next(item for item in dashboard["workers"] if item["name"] == "Marcus Rivera")
+        other_worker = next(item for item in dashboard["workers"] if item["id"] != worker["id"])
+        png = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII="
+        )
+        responses = []
+        saved_paths = []
+        try:
+            for assigned_worker in (worker, other_worker):
+                response = self.client.post("/api/work-logs", data={
+                    "worker_id": str(assigned_worker["id"]),
+                    "task": "Inspect concrete pour",
+                    "completion": "72",
+                    "issue": "",
+                    "photo": (BytesIO(png), "../site progress.png", "image/png"),
+                }, content_type="multipart/form-data")
+                self.assertEqual(response.status_code, 201, response.get_json())
+                payload = response.get_json()
+                self.assertEqual(payload["photo_name"], "site_progress.png")
+                self.assertTrue(payload["photo_url"])
+                responses.append(payload)
+                log_id = int(payload["photo_url"].split("/")[-2])
+                with self.app.app_context():
+                    log = db.session.get(WorkLog, log_id)
+                    saved_paths.append(Path(self.app.config["UPLOAD_FOLDER"]) / log.photo_path)
+
+            saved_path = saved_paths[0]
+            self.assertTrue(saved_path.is_file())
+            self.assertEqual(
+                next(project["progress"] for project in self.client.get("/api/dashboard").get_json()["projects"]
+                     if project["id"] == worker["project_id"]),
+                72,
+            )
+            image_response = self.client.get(responses[0]["photo_url"])
+            self.assertEqual(image_response.status_code, 200)
+            image_response.close()
+
+            self.client.post("/api/auth/logout")
+            self.sign_in("worker", worker["code"], "worker123")
+            image_response = self.client.get(responses[0]["photo_url"])
+            self.assertEqual(image_response.status_code, 200)
+            image_response.close()
+            self.assertEqual(self.client.get(responses[1]["photo_url"]).status_code, 404)
+            self.assertEqual(self.client.get("/api/work-logs/999999/photo").status_code, 404)
+            self.assertTrue(saved_path.is_file())
+        finally:
+            for saved_path in saved_paths:
+                saved_path.unlink(missing_ok=True)
+
+    def test_work_log_rejects_invalid_photo_and_oversized_upload(self):
+        invalid = self.client.post("/api/work-logs", data={
+            "worker_id": "1",
+            "task": "Invalid photo",
+            "completion": "50",
+            "photo": (BytesIO(b"not an image"), "site.jpg", "image/jpeg"),
+        }, content_type="multipart/form-data")
+        self.assertEqual(invalid.status_code, 400)
+
+        oversized = self.client.post("/api/work-logs", data={
+            "worker_id": "1",
+            "task": "Oversized photo",
+            "completion": "50",
+            "photo": (BytesIO(b"\xff\xd8\xff" + b"x" * PHOTO_MAX_BYTES), "large.jpg", "image/jpeg"),
+        }, content_type="multipart/form-data")
+        self.assertEqual(oversized.status_code, 400)
+        self.assertIn("5 MB", oversized.get_json()["error"])
+        oversized.close()
 
     def test_work_log_rejects_invalid_completion(self):
         response = self.client.post("/api/work-logs", json={

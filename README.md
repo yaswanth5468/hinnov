@@ -35,7 +35,8 @@ The application creates its tables and demo rows on first run. Existing database
 - Admins can assign tasks to workers on the same project; workers can view their own tasks and update task status in their separate `/worker` portal.
 - Inventory tracks item SKU, category, quantity, unit, reorder threshold, and site location, and flags items at or below their reorder level.
 - The notification bell lists urgent pickups scheduled for tomorrow. The alarm toggle plays a short Tone.js chime after a user gesture.
-- Admins can post work logs, record expenses against project budgets, inspect the worker directory, and export a project CSV. Workers can post their own logs and simulated site-photo filenames.
+- Admins can post work logs, record expenses against project budgets, inspect the worker directory, and export a project CSV. Workers can post their own logs with optional JPEG, PNG, or WebP site photos (up to 5 MB). Photos are stored with generated filenames and can only be viewed by administrators or the worker who submitted that log.
+- Each work log's completion percentage updates that project's progress; the most recently submitted log is the current project completion value.
 - Admins can register workers with a daily wage or monthly salary, assign a project, and deactivate/reactivate worker portal access. Government ID, address, and bank information are not collected.
 - The team directory includes a wage ledger for wages earned, payments, and advances. Outstanding balance is calculated as earned wages less payments and advances. Earned wages are added to the project's labor expenses; payments and advances are ledger settlements and are not double-counted as project costs.
 - Purchase orders can name an active buyer assigned to the same project, include an order total, and move through Pending Pickup, Picked Up, and Delivered to Site. The order page provides a WhatsApp link with the voucher, supplier, item, project, pickup date, and total for the buyer.
@@ -53,7 +54,8 @@ The application creates its tables and demo rows on first run. Existing database
 - `POST /api/tasks` — admin-only worker task assignment.
 - `PATCH /api/tasks/<id>` — allow the assigned worker to update their own task status.
 - `POST /api/inventory` — admin-only create/update stock by SKU.
-- `POST /api/work-logs` — admin or signed-in worker daily task update; worker accounts can only post for themselves.
+- `POST /api/work-logs` — admin or signed-in worker daily task update; accepts JSON (without a photo) or multipart form data (with an optional JPEG, PNG, or WebP photo up to 5 MB). Worker accounts can only post for themselves.
+- `GET /api/work-logs/<id>/photo` — authenticated image access for administrators and the worker who owns the work log.
 - `POST /api/orders` and `POST /api/expenses` — admin-only procurement and project finance updates.
 - `PATCH /api/orders/<id>` — admin-only buyer assignment and purchase order status update.
 - `GET /api/equipment` — admin-only shared equipment availability, open checkouts, and recent movement history.

@@ -8,9 +8,10 @@ const workerDate = value => new Date(`${value}T12:00:00`).toLocaleDateString("en
 });
 
 async function workerRequest(url, options = {}) {
+  const isFormData = options.body instanceof FormData;
   const response = await fetch(url, {
     ...options,
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) }
+    headers: { ...(isFormData ? {} : { "Content-Type": "application/json" }), ...(options.headers || {}) }
   });
   const payload = await response.json();
   if (response.status === 401) {
@@ -38,8 +39,8 @@ function renderWorkerPortal(worker) {
       </section>
       <section class="worker-data-card"><div class="worker-section-heading"><div><h2>Today's schedule</h2><p>Your day on site</p></div></div><div class="worker-schedule"><div class="schedule-item done"><span>✓</span><div><strong>Morning safety briefing</strong><small>7:00 AM</small></div></div><div class="schedule-item"><span>2</span><div><strong>Assigned site work</strong><small>8:00 AM · ${worker.assigned_tasks.length} tasks</small></div></div><div class="schedule-item"><span>3</span><div><strong>Afternoon progress check-in</strong><small>2:30 PM</small></div></div><div class="schedule-item"><span>4</span><div><strong>Site close and sign-out</strong><small>4:30 PM</small></div></div></div></section>
     </div>
-    <section class="worker-data-card worker-worklog"><div class="worker-section-heading"><div><h2>Share a progress update</h2><p>Let your supervisor know how the work is going.</p></div></div><form id="workerLogForm"><div class="form-columns"><label>Task or work area<input name="task" placeholder="What did you work on?" required></label><label>Completion<input name="completion" type="number" min="0" max="100" value="50" required></label></div><div class="form-columns"><label>Site photo<input name="photo" type="file" accept="image/*"><span class="field-note">Upload simulation: only the selected filename is recorded.</span></label><label>Report an issue<input name="issue" placeholder="Optional blocker or safety issue"></label></div><div class="form-error hidden" id="workerLogError"></div><button class="button button-primary">Post today's update</button></form></section>
-    <section class="worker-data-card worker-recent-logs"><div class="worker-section-heading"><div><h2>Recent work updates</h2><p>Your latest submitted progress reports</p></div></div>${worker.logs.length ? worker.logs.map(log => `<div class="worker-log-row"><span class="live-dot"></span><div><strong>${workerEscape(log.task)}</strong><small>${log.completion}% complete · ${workerEscape(log.status)}${log.issue ? ` · ${workerEscape(log.issue)}` : ""}</small></div></div>`).join("") : `<div class="worker-empty">No work updates submitted yet.</div>`}</section>`;
+    <section class="worker-data-card worker-worklog"><div class="worker-section-heading"><div><h2>Share a progress update</h2><p>Your update sets the latest completion percentage for your project.</p></div></div><form id="workerLogForm"><div class="form-columns"><label>Task or work area<input name="task" placeholder="What did you work on?" required></label><label>Project completion<input name="completion" type="number" min="0" max="100" value="${worker.project.progress}" required></label></div><div class="form-columns"><label>Site photo<input name="photo" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"><span class="field-note">Optional JPEG, PNG, or WebP image (max 5 MB).</span></label><label>Report an issue<input name="issue" placeholder="Optional blocker or safety issue"></label></div><div class="form-error hidden" id="workerLogError"></div><button class="button button-primary">Post today's update</button></form></section>
+    <section class="worker-data-card worker-recent-logs"><div class="worker-section-heading"><div><h2>Recent work updates</h2><p>Your latest submitted progress reports</p></div></div>${worker.logs.length ? worker.logs.map(log => `<div class="worker-log-row"><span class="live-dot"></span><div><strong>${workerEscape(log.task)}</strong><small>${log.completion}% complete · ${workerEscape(log.status)}${log.issue ? ` · ${workerEscape(log.issue)}` : ""}${log.photo_url ? ` · <a href="${workerEscape(log.photo_url)}" target="_blank" rel="noopener">View photo</a>` : ""}</small></div></div>`).join("") : `<div class="worker-empty">No work updates submitted yet.</div>`}</section>`;
 
   document.querySelectorAll(".task-status-select").forEach(select => {
     select.addEventListener("change", async event => {
@@ -60,12 +61,8 @@ function renderWorkerPortal(worker) {
   document.querySelector("#workerLogForm").addEventListener("submit", async event => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const payload = {
-      task: form.get("task"), completion: form.get("completion"),
-      issue: form.get("issue"), photo_name: event.currentTarget.elements.photo.files[0]?.name || ""
-    };
     try {
-      await workerRequest("/api/work-logs", { method: "POST", body: JSON.stringify(payload) });
+      await workerRequest("/api/work-logs", { method: "POST", body: form });
       renderWorkerPortal(await workerRequest("/api/worker/me"));
       showWorkerToast("Progress update sent to your supervisor.");
     } catch (error) {

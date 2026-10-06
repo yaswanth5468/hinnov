@@ -1,16 +1,26 @@
 import os
+import uuid
 from functools import wraps
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, current_app, jsonify, redirect, render_template, request, send_file, session, url_for
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import inspect, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 
 db = SQLAlchemy()
 ORDER_STATUSES = ("Pending Pickup", "Picked Up", "Delivered to Site")
+PHOTO_MAX_BYTES = 5 * 1024 * 1024
+PHOTO_FORMATS = {
+    ".jpg": ("image/jpeg", lambda header: header.startswith(b"\xff\xd8\xff")),
+    ".jpeg": ("image/jpeg", lambda header: header.startswith(b"\xff\xd8\xff")),
+    ".png": ("image/png", lambda header: header.startswith(b"\x89PNG\r\n\x1a\n")),
+    ".webp": ("image/webp", lambda header: len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WEBP"),
+}
 
 
 class Project(db.Model):
@@ -78,6 +88,7 @@ class WorkLog(db.Model):
     completion = db.Column(db.Integer, nullable=False)
     issue = db.Column(db.String(500), nullable=False, default="")
     photo_name = db.Column(db.String(255), nullable=False, default="")
+    photo_path = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     worker = db.relationship("Worker")
     project = db.relationship("Project")
@@ -335,8 +346,38 @@ def _log_data(log):
         "completion": log.completion,
         "issue": log.issue,
         "photo_name": log.photo_name,
+        "photo_url": f"/api/work-logs/{log.id}/photo" if log.photo_path else "",
         "created_at": log.created_at.isoformat() + "Z",
     }
+
+
+def _validated_photo_upload(photo):
+    if not photo or not photo.filename:
+        return None
+    try:
+        original_name = secure_filename(Path(photo.filename).name)
+        extension = Path(original_name).suffix.lower()
+        photo_format = PHOTO_FORMATS.get(extension)
+        if not original_name or not photo_format:
+            raise ValueError("Upload a JPEG, PNG, or WebP site photo.")
+        mime_type, matches_header = photo_format
+        contents = photo.stream.read(PHOTO_MAX_BYTES + 1)
+        if len(contents) > PHOTO_MAX_BYTES:
+            raise ValueError("Photo exceeds the 5 MB upload limit.")
+        if not matches_header(contents[:12]):
+            raise ValueError("The selected file is not a valid JPEG, PNG, or WebP image.")
+        photo.stream.seek(0)
+        relative_path = f"{uuid.uuid4().hex}{extension}"
+        destination = Path(current_app.config["UPLOAD_FOLDER"]) / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            photo.save(destination)
+        except OSError:
+            destination.unlink(missing_ok=True)
+            raise
+        return original_name, relative_path, mime_type, destination
+    finally:
+        photo.close()
 
 
 def _task_data(task):
@@ -470,6 +511,9 @@ def _upgrade_schema():
     db.session.execute(text(
         "UPDATE purchase_order SET status = 'Picked Up' WHERE status = 'Picked up'"
     ))
+    work_log_columns = {column["name"] for column in inspect(db.engine).get_columns("work_log")}
+    if "photo_path" not in work_log_columns:
+        db.session.execute(text("ALTER TABLE work_log ADD COLUMN photo_path VARCHAR(255)"))
     db.session.commit()
 
 
@@ -524,6 +568,10 @@ def create_app(database_url=None):
     app = Flask(__name__)
     app.secret_key = os.getenv("SECRET_KEY", "development-only-change-me")
     app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
+    app.config.update(
+        MAX_CONTENT_LENGTH=PHOTO_MAX_BYTES + 256 * 1024,
+        UPLOAD_FOLDER=str(Path(app.instance_path) / "uploads" / "work-logs"),
+    )
     default_db = "sqlite:///" + str(Path(app.instance_path) / "siteflow.db").replace("\\", "/")
     app.config["SQLALCHEMY_DATABASE_URI"] = database_url or os.getenv("DATABASE_URL", default_db)
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -535,6 +583,10 @@ def create_app(database_url=None):
         _upgrade_schema()
         _seed_data()
         _seed_accounts()
+
+    @app.errorhandler(RequestEntityTooLarge)
+    def upload_too_large(_error):
+        return jsonify({"error": "Photo exceeds the 5 MB upload limit."}), 413
 
     @app.get("/")
     def index():
@@ -1008,7 +1060,8 @@ def create_app(database_url=None):
     @app.post("/api/work-logs")
     @require_role("admin", "worker")
     def create_work_log():
-        data = request.get_json(silent=True) or {}
+        data = request.get_json(silent=True) if request.is_json else request.form
+        data = data or {}
         task = str(data.get("task", "")).strip()
         issue = str(data.get("issue", "")).strip()
         photo_name = str(data.get("photo_name", "")).strip()
@@ -1020,16 +1073,54 @@ def create_app(database_url=None):
         worker = db.session.get(Worker, worker_id)
         if not worker or not worker.is_active or not task or not 0 <= completion <= 100:
             return jsonify({"error": "Choose a valid worker, task, and completion percentage from 0 to 100."}), 400
+        try:
+            uploaded_photo = _validated_photo_upload(request.files.get("photo"))
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+        if uploaded_photo:
+            photo_name, photo_path, _mime_type, photo_destination = uploaded_photo
+        else:
+            photo_path = None
+            photo_destination = None
         status = "Needs attention" if issue else (
             "Complete" if completion == 100 else "In progress"
         )
         log = WorkLog(
             worker_id=worker.id, project_id=worker.project_id, task=task,
-            status=status, completion=completion, issue=issue, photo_name=photo_name,
+            status=status, completion=completion, issue=issue,
+            photo_name=photo_name, photo_path=photo_path,
         )
         db.session.add(log)
-        db.session.commit()
+        worker.project.progress = completion
+        try:
+            db.session.commit()
+        except SQLAlchemyError:
+            db.session.rollback()
+            if photo_destination:
+                photo_destination.unlink(missing_ok=True)
+            raise
         return jsonify(_log_data(log)), 201
+
+    @app.get("/api/work-logs/<int:log_id>/photo")
+    @require_role("admin", "worker")
+    def work_log_photo(log_id):
+        log = db.session.get(WorkLog, log_id)
+        if (
+            not log
+            or not log.photo_path
+            or (session["role"] == "worker" and log.worker_id != session["worker_id"])
+        ):
+            return jsonify({"error": "Photo not found."}), 404
+        extension = Path(log.photo_path).suffix.lower()
+        photo_format = PHOTO_FORMATS.get(extension)
+        if not photo_format:
+            return jsonify({"error": "Photo not found."}), 404
+        photo_path = Path(current_app.config["UPLOAD_FOLDER"]) / log.photo_path
+        if not photo_path.is_file():
+            return jsonify({"error": "Photo not found."}), 404
+        response = send_file(photo_path, mimetype=photo_format[0], conditional=True)
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
 
     @app.post("/api/orders")
     @require_role("admin")

@@ -95,7 +95,7 @@ function renderSection(data) {
     filterWorkers();
   }
   if (section === "activity") bodyRows("activityRows", data.logs.map(log =>
-    `<tr><td><strong>${escapeSection(log.task)}</strong>${log.photo_name ? `<br><span class="subtle-cell">📷 ${escapeSection(log.photo_name)}</span>` : ""}</td><td>${escapeSection(log.worker)}</td><td>${escapeSection(log.project)}</td><td><span class="status-pill ${log.status === "Complete" ? "status-ready" : ""}">${escapeSection(log.status)}</span></td><td>${log.completion}%</td><td>${escapeSection(log.issue || "—")}</td><td>${sectionDate(log.created_at.slice(0, 10))}</td></tr>`
+    `<tr><td><strong>${escapeSection(log.task)}</strong>${log.photo_url ? `<br><a class="subtle-cell" href="${escapeSection(log.photo_url)}" target="_blank" rel="noopener">📷 ${escapeSection(log.photo_name || "View photo")}</a>` : ""}</td><td>${escapeSection(log.worker)}</td><td>${escapeSection(log.project)}</td><td><span class="status-pill ${log.status === "Complete" ? "status-ready" : ""}">${escapeSection(log.status)}</span></td><td>${log.completion}%</td><td>${escapeSection(log.issue || "—")}</td><td>${sectionDate(log.created_at.slice(0, 10))}</td></tr>`
   ).join(""));
   if (section === "expenses") bodyRows("expenseRows", data.expenses.map(expense =>
     `<tr><td><strong>${escapeSection(expense.description)}</strong></td><td>${escapeSection(expense.category)}</td><td>${escapeSection(expense.project)}</td><td>${sectionDate(expense.date)}</td><td><strong>${sectionMoney(expense.amount)}</strong></td></tr>`

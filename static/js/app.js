@@ -14,9 +14,10 @@ const timeAgo = value => {
 };
 
 async function requestJson(url, options = {}) {
+  const isFormData = options.body instanceof FormData;
   const response = await fetch(url, {
     ...options,
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) }
+    headers: { ...(isFormData ? {} : { "Content-Type": "application/json" }), ...(options.headers || {}) }
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || "Something went wrong. Please try again.");
@@ -58,7 +59,7 @@ function renderActivity() {
     const worker = log.worker.split(" ");
     const initials = `${worker[0][0]}${worker[worker.length - 1][0]}`;
     const [background, color] = colors[index % colors.length];
-    return `<div class="activity-item"><div class="activity-avatar" style="background:${background};color:${color}">${escapeHtml(initials)}</div><div class="activity-message"><strong>${escapeHtml(log.worker)}</strong> posted an update for ${escapeHtml(log.project)}<span>${escapeHtml(log.task)} · ${timeAgo(log.created_at)}</span>${log.issue ? `<span class="activity-alert">⚑ ${escapeHtml(log.issue)}</span>` : ""}</div></div>`;
+    return `<div class="activity-item"><div class="activity-avatar" style="background:${background};color:${color}">${escapeHtml(initials)}</div><div class="activity-message"><strong>${escapeHtml(log.worker)}</strong> posted an update for ${escapeHtml(log.project)}<span>${escapeHtml(log.task)} · ${timeAgo(log.created_at)}</span>${log.photo_url ? `<span><a href="${escapeHtml(log.photo_url)}" target="_blank" rel="noopener">View site photo</a></span>` : ""}${log.issue ? `<span class="activity-alert">⚑ ${escapeHtml(log.issue)}</span>` : ""}</div></div>`;
   }).join("") || `<div class="activity-item"><div class="activity-message">No site updates yet.</div></div>`;
 }
 
@@ -158,6 +159,14 @@ function renderDashboard(data) {
   $("#logWorker").innerHTML = data.workers.map(worker =>
     `<option value="${worker.id}">${escapeHtml(worker.name)} · ${escapeHtml(worker.role)}</option>`
   ).join("");
+  const updateProjectCompletion = () => {
+    const worker = data.workers.find(item => item.id === Number($("#logWorker").value));
+    const progress = data.projects.find(project => project.id === worker?.project_id)?.progress ?? 0;
+    $("#completionRange").value = progress;
+    $("#completionValue").textContent = `${progress}%`;
+  };
+  $("#logWorker").onchange = updateProjectCompletion;
+  updateProjectCompletion();
   if (newAlarm) {
     state.dismissedAlarm = false;
     if (state.soundEnabled) playAlarm();
@@ -339,15 +348,8 @@ $("#expenseForm").addEventListener("submit", async event => {
 $("#logForm").addEventListener("submit", async event => {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
-  const payload = {
-    worker_id: form.get("worker_id"),
-    task: form.get("task"),
-    completion: form.get("completion"),
-    issue: form.get("issue"),
-    photo_name: $("#photoInput").files[0]?.name || ""
-  };
   try {
-    await requestJson("/api/work-logs", { method: "POST", body: JSON.stringify(payload) });
+    await requestJson("/api/work-logs", { method: "POST", body: form });
     $("#logModal").classList.add("hidden");
     event.currentTarget.reset();
     $("#completionValue").textContent = "50%";
